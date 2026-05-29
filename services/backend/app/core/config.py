@@ -115,6 +115,10 @@ class Settings(BaseSettings):
     # When stored turns exceed this, the oldest are folded into a running summary
     # so prompts stay bounded across long conversations.
     memory_summary_threshold: int = 12
+    # Recent turns actually sent to the model per request (rolling summary covers
+    # the rest). Smaller than memory_max_turns so storage can stay richer for the
+    # session view while the prompt window remains "summary + last N turns".
+    context_recent_turns: int = 3
 
 
 settings = Settings()

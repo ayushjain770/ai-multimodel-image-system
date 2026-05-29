@@ -120,6 +120,7 @@ models/                   mounted checkpoints (gitignored)
 - `POST /api/v1/chat` - grounded chat; `generate_image: true` also returns a base64 image.
 - `POST /api/v1/search` - scripture retrieval (RAG), denomination-filtered.
 - `POST /api/v1/verify` - anti-hallucination check of references in text (valid | unknown_book | nonexistent | misquote).
+- `POST /api/v1/chat/stream` - same pipeline as `/chat`, streamed as Server-Sent Events (`meta` -> `token`* -> `final` -> `done`).
 - `POST /api/v1/image` - Christian-themed image generation (safety guard + style templating; refuses disallowed prompts).
 - `POST /api/v1/compose_image_prompt` - LLM-assisted structured image prompt (no render).
 - `POST /api/v1/moderate` - screen text with the safety rules (`stage`: input | output).
@@ -130,6 +131,37 @@ models/                   mounted checkpoints (gitignored)
 ## MCP tools (:8001)
 
 `ping`, `scripture_search`, `verse_verify`, `generate_image`, `prompt_composer`, `moderate` - all delegate to the backend (URL from env).
+
+## Streaming + context window (Phase 8)
+
+`POST /api/v1/chat/stream` runs the exact same orchestrated/moderated/grounded
+pipeline as `/chat` (shared `prepare_turn()` / `postprocess()` in
+[services/backend/app/routers/chat.py](services/backend/app/routers/chat.py)) but
+emits Server-Sent Events so the UI renders the answer as it is generated:
+
+| event   | payload                                                        |
+| ------- | -------------------------------------------------------------- |
+| `meta`  | `{intent, citations, session_id, backend}` (sent first)        |
+| `token` | `{delta}` (one per chunk; mock streams word-by-word)           |
+| `final` | `{reply, refused, moderated, moderation, verification, image_base64}` |
+| `done`  | `{}`                                                           |
+
+Input moderation and the rewrite guard still short-circuit before any LLM call
+(they emit the refusal as a single `token` then `final`). Output moderation and
+verse verification run on the accumulated reply after streaming; if moderation
+replaces the text, `final.reply` carries the safe replacement and the UI swaps the
+streamed bubble.
+
+Each request sends a bounded context window: the rolling conversation summary plus
+only the last `CONTEXT_RECENT_TURNS` turns (default 3). Server memory keeps more
+turns (`MEMORY_MAX_TURNS`) for the session view, so storage stays rich while the
+prompt stays small. Try it:
+
+```bash
+curl -N -X POST http://localhost:8080/api/v1/chat/stream \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"What does the Bible say about hope?","session_id":"demo"}'
+```
 
 ## Intent orchestrator (Phase 7)
 

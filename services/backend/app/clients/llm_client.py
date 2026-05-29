@@ -8,7 +8,10 @@ The interface carries grounding (citations), tone (system_prompt) and memory
 (summarize) so callers stay backend-agnostic.
 """
 
+import asyncio
+import json
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 
 import httpx
 
@@ -72,6 +75,16 @@ class LLMClient(ABC):
     ) -> str: ...
 
     @abstractmethod
+    def stream_chat(
+        self,
+        message: str,
+        history: list[ChatMessage],
+        citations: list[Citation] | None = None,
+        system_prompt: str | None = None,
+    ) -> AsyncIterator[str]:
+        """Yield the reply incrementally as token/word chunks."""
+
+    @abstractmethod
     async def summarize(
         self, messages: list[ChatMessage], prior_summary: str = ""
     ) -> str:
@@ -92,12 +105,12 @@ class LLMClient(ABC):
 class MockLLMClient(LLMClient):
     """Deterministic stand-in so the stack runs without a GPU."""
 
-    async def chat(
+    def _build_reply(
         self,
         message: str,
         history: list[ChatMessage],
-        citations: list[Citation] | None = None,
-        system_prompt: str | None = None,
+        citations: list[Citation] | None,
+        system_prompt: str | None,
     ) -> str:
         if system_prompt and IMAGE_COMPOSER_MARKER in system_prompt:
             # Composer path: return a clean, deterministic scene description.
@@ -122,6 +135,28 @@ class MockLLMClient(LLMClient):
             f"[mock-llm] Peace be with you. You asked: \"{message}\" "
             f"(turn {turn}).{memory}{framing}{grounding}"
         )
+
+    async def chat(
+        self,
+        message: str,
+        history: list[ChatMessage],
+        citations: list[Citation] | None = None,
+        system_prompt: str | None = None,
+    ) -> str:
+        return self._build_reply(message, history, citations, system_prompt)
+
+    async def stream_chat(
+        self,
+        message: str,
+        history: list[ChatMessage],
+        citations: list[Citation] | None = None,
+        system_prompt: str | None = None,
+    ) -> AsyncIterator[str]:
+        reply = self._build_reply(message, history, citations, system_prompt)
+        words = reply.split(" ")
+        for i, word in enumerate(words):
+            yield word if i == 0 else " " + word
+            await asyncio.sleep(0.02)
 
     async def summarize(
         self, messages: list[ChatMessage], prior_summary: str = ""
@@ -156,12 +191,7 @@ class VLLMClient(LLMClient):
         citations: list[Citation] | None = None,
         system_prompt: str | None = None,
     ) -> str:
-        messages = [{"role": "system", "content": system_prompt or _SYSTEM_PROMPT}]
-        messages += [{"role": m.role, "content": m.content} for m in history]
-        context = _format_context(citations or [])
-        user_content = f"{context}\n\nQuestion: {message}" if context else message
-        messages.append({"role": "user", "content": user_content})
-
+        messages = self._build_messages(message, history, citations, system_prompt)
         resp = await self._client.post(
             f"{self._base_url}/chat/completions",
             json={
@@ -173,6 +203,53 @@ class VLLMClient(LLMClient):
         resp.raise_for_status()
         data = resp.json()
         return data["choices"][0]["message"]["content"]
+
+    def _build_messages(
+        self,
+        message: str,
+        history: list[ChatMessage],
+        citations: list[Citation] | None,
+        system_prompt: str | None,
+    ) -> list[dict[str, str]]:
+        messages = [{"role": "system", "content": system_prompt or _SYSTEM_PROMPT}]
+        messages += [{"role": m.role, "content": m.content} for m in history]
+        context = _format_context(citations or [])
+        user_content = f"{context}\n\nQuestion: {message}" if context else message
+        messages.append({"role": "user", "content": user_content})
+        return messages
+
+    async def stream_chat(
+        self,
+        message: str,
+        history: list[ChatMessage],
+        citations: list[Citation] | None = None,
+        system_prompt: str | None = None,
+    ) -> AsyncIterator[str]:
+        messages = self._build_messages(message, history, citations, system_prompt)
+        async with self._client.stream(
+            "POST",
+            f"{self._base_url}/chat/completions",
+            json={
+                "model": self._model,
+                "messages": messages,
+                "temperature": settings.llm_temperature,
+                "stream": True,
+            },
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line or not line.startswith("data:"):
+                    continue
+                payload = line[len("data:") :].strip()
+                if payload == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(payload)
+                    delta = chunk["choices"][0]["delta"].get("content")
+                except (json.JSONDecodeError, KeyError, IndexError):
+                    continue
+                if delta:
+                    yield delta
 
     async def summarize(
         self, messages: list[ChatMessage], prior_summary: str = ""

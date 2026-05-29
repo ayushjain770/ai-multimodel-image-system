@@ -1,10 +1,17 @@
 "use client";
 
-import { useState } from "react";
-import { sendChat, type ChatMessage, type Denomination } from "@/lib/api";
+import { useRef, useState } from "react";
+import {
+  streamChat,
+  type ChatMessage,
+  type Denomination,
+  type IntentInfo,
+} from "@/lib/api";
 
 interface Turn extends ChatMessage {
   image?: string | null;
+  intent?: IntentInfo | null;
+  streaming?: boolean;
 }
 
 const DENOMINATIONS: Denomination[] = [
@@ -27,6 +34,15 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Index of the assistant bubble currently being streamed into.
+  const replyIdx = useRef<number>(-1);
+
+  function updateReply(patch: (t: Turn) => Turn) {
+    setTurns((prev) =>
+      prev.map((t, i) => (i === replyIdx.current ? patch(t) : t)),
+    );
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     const message = input.trim();
@@ -38,23 +54,35 @@ export default function Home() {
       role,
       content,
     }));
-    setTurns((t) => [...t, { role: "user", content: message }]);
     setInput("");
 
-    try {
-      const res = await sendChat(
-        message,
-        history,
-        generateImage,
-        sessionId,
-        denomination,
-      );
-      setTurns((t) => [
+    setTurns((t) => {
+      const next: Turn[] = [
         ...t,
-        { role: "assistant", content: res.reply, image: res.image_base64 },
-      ]);
+        { role: "user", content: message },
+        { role: "assistant", content: "", streaming: true },
+      ];
+      replyIdx.current = next.length - 1;
+      return next;
+    });
+
+    try {
+      await streamChat(message, history, generateImage, sessionId, denomination, {
+        onMeta: (meta) => updateReply((t) => ({ ...t, intent: meta.intent })),
+        onToken: (delta) =>
+          updateReply((t) => ({ ...t, content: t.content + delta })),
+        onFinal: (final) =>
+          updateReply((t) => ({
+            ...t,
+            content: final.reply,
+            image: final.image_base64,
+            streaming: false,
+          })),
+        onError: (msg) => setError(msg),
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Request failed");
+      updateReply((t) => ({ ...t, streaming: false }));
     } finally {
       setLoading(false);
     }
@@ -63,12 +91,20 @@ export default function Home() {
   return (
     <main className="shell">
       <h1>Christianity AI Assistant</h1>
-      <p className="muted">Grounded chat with memory, denomination framing, and images</p>
+      <p className="muted">
+        Streaming chat with memory, denomination framing, and images
+      </p>
 
       <div className="messages">
         {turns.map((turn, i) => (
           <div key={i} className={`bubble ${turn.role}`}>
+            {turn.role === "assistant" && turn.intent ? (
+              <span className="badge">{turn.intent.kind}</span>
+            ) : null}
             {turn.content}
+            {turn.streaming && !turn.content ? (
+              <span className="muted">thinking...</span>
+            ) : null}
             {turn.image ? (
               <img
                 src={`data:image/png;base64,${turn.image}`}
@@ -77,7 +113,6 @@ export default function Home() {
             ) : null}
           </div>
         ))}
-        {loading ? <div className="bubble assistant muted">thinking...</div> : null}
         {error ? <div className="bubble assistant">Error: {error}</div> : null}
       </div>
 
