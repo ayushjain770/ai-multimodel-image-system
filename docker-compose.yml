@@ -1,0 +1,141 @@
+# Base service definitions shared by dev and prod.
+# Run via the Makefile:
+#   make dev   -> docker-compose.yml + docker-compose.dev.yml  (Mac, mocks, no GPU)
+#   make prod  -> docker-compose.yml + docker-compose.prod.yml --profile gpu (EC2)
+
+name: christ-ai
+
+services:
+  # ---------------------------------------------------------------------------
+  # FastAPI gateway - single entrypoint for the UI
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./services/backend
+    env_file: .env
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    depends_on:
+      - qdrant
+      - mcp-server
+    networks: [appnet]
+    healthcheck:
+      test:
+        ["CMD", "python", "-c",
+         "import urllib.request; urllib.request.urlopen('http://localhost:8080/health/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # FastMCP server - tool surface (ping only in Phase 1)
+  # ---------------------------------------------------------------------------
+  mcp-server:
+    build:
+      context: ./services/mcp-server
+    env_file: .env
+    ports:
+      - "${MCP_PORT:-8001}:8001"
+    networks: [appnet]
+    healthcheck:
+      test:
+        ["CMD", "python", "-c",
+         "import socket; socket.create_connection(('localhost', 8001), timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # UI - Next.js
+  # ---------------------------------------------------------------------------
+  ui:
+    build:
+      context: ./services/ui
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+    ports:
+      - "${UI_PORT:-3000}:3000"
+    depends_on:
+      - backend
+    networks: [appnet]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ---------------------------------------------------------------------------
+  # Qdrant vector DB
+  # ---------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks: [appnet]
+
+  # ---------------------------------------------------------------------------
+  # vLLM serving Qwen2.5-VL (GPU profile only)
+  # ---------------------------------------------------------------------------
+  vllm:
+    image: vllm/vllm-openai:latest
+    profiles: ["gpu"]
+    command:
+      - "--model"
+      - "${VLLM_MODEL:-Qwen/Qwen2.5-VL-3B-Instruct}"
+      - "--gpu-memory-utilization"
+      - "${VLLM_GPU_MEMORY_UTILIZATION:-0.85}"
+      - "--max-model-len"
+      - "${VLLM_MAX_MODEL_LEN:-8192}"
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    ports:
+      - "${VLLM_PORT:-8000}:8000"
+    networks: [appnet]
+    healthcheck:
+      test:
+        ["CMD", "python3", "-c",
+         "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 300s
+
+  # ---------------------------------------------------------------------------
+  # ComfyUI + Juggernaut (GPU profile only)
+  # ---------------------------------------------------------------------------
+  comfyui:
+    build:
+      context: ./services/comfyui
+    profiles: ["gpu"]
+    volumes:
+      - ./models:/opt/ComfyUI/models
+    ports:
+      - "${COMFYUI_PORT:-8188}:8188"
+    networks: [appnet]
+    healthcheck:
+      test:
+        ["CMD", "python", "-c",
+         "import urllib.request; urllib.request.urlopen('http://localhost:8188/system_stats', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+networks:
+  appnet:
+    driver: bridge
+
+volumes:
+  qdrant_data:
+  hf_cache:

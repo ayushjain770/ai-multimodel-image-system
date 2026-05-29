@@ -1,0 +1,55 @@
+# Prod overrides: real GPU models, built/tagged images, restart policies,
+# health-gated startup ordering. Used by `make prod` (adds --profile gpu) on EC2.
+
+services:
+  backend:
+    image: christ-ai/backend:latest
+    restart: unless-stopped
+    environment:
+      APP_ENV: prod
+      LLM_BACKEND: vllm
+      IMAGE_BACKEND: comfy
+      LOG_LEVEL: INFO
+    depends_on:
+      qdrant:
+        condition: service_started
+      mcp-server:
+        condition: service_healthy
+      vllm:
+        condition: service_healthy
+      comfyui:
+        condition: service_healthy
+
+  mcp-server:
+    image: christ-ai/mcp-server:latest
+    restart: unless-stopped
+
+  ui:
+    image: christ-ai/ui:latest
+    build:
+      target: runner
+    restart: unless-stopped
+
+  qdrant:
+    restart: unless-stopped
+
+  vllm:
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  comfyui:
+    image: christ-ai/comfyui:latest
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

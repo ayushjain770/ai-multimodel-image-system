@@ -1,0 +1,28 @@
+# Dev overrides: hot reload, source bind-mounts, mock backends, no GPU.
+# Used by `make dev` and runs entirely on a Mac (vllm/comfyui are not started
+# because the `gpu` profile is not activated).
+
+services:
+  backend:
+    environment:
+      APP_ENV: dev
+      LLM_BACKEND: mock
+      IMAGE_BACKEND: mock
+      LOG_LEVEL: DEBUG
+    volumes:
+      - ./services/backend:/app
+    command:
+      ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--reload"]
+
+  mcp-server:
+    volumes:
+      - ./services/mcp-server:/app
+    command: ["python", "server.py"]
+
+  ui:
+    build:
+      target: dev
+    volumes:
+      - ./services/ui:/app
+      - /app/node_modules
+    command: ["npm", "run", "dev"]
