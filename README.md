@@ -1,286 +1,297 @@
-# Christianity AI Assistant - Phase 1 (Foundation & Infrastructure)
+# Christianity AI Assistant
 
-A multimodal, scripture-grounded Christian AI assistant. This phase ships the
-runnable skeleton of the whole system: six services wired together over Docker
-Compose, with an app-only **dev** mode (mocks, runs on a Mac with no GPU) and a
-full **prod** mode (real GPU models on EC2).
+A multimodal, scripture-grounded Christian AI assistant. It answers faith questions with
+real Bible citations, verifies scripture references to prevent hallucination, generates
+reverent Christian artwork, and keeps durable conversation history — all behind a single
+FastAPI gateway the UI and MCP agents talk to.
 
-> No business logic yet beyond a chat round-trip and one test image. Grounding,
-> safety, RAG, and the rest land in later phases.
+---
 
-## Architecture
+## Tech stack
 
-```
-UI (Next.js :3000)
-   |  REST /api/v1
-   v
-FastAPI gateway (:8080) ---- MCP streamable-http ----> FastMCP server (:8001)
-   |        |          \
-   |        |           \--- OpenAI-compatible ------> vLLM Qwen2.5-VL-3B (:8000)
-   |        |
-   |        \------------- HTTP API ------------------> ComfyUI + Juggernaut (:8188)
-   |
-   \---------------------- REST/gRPC -----------------> Qdrant vector DB (:6333)
-```
+| Layer | Technology | Role |
+| ----- | ---------- | ---- |
+| **UI** | Next.js 14, React, TypeScript | Streaming chat UI with session sidebar |
+| **Gateway** | FastAPI, Pydantic, SQLAlchemy | Single API entrypoint; orchestrates every feature |
+| **LLM** | Qwen2.5-VL-3B-Instruct via vLLM | Chat, summarization, optional intent/moderation judge |
+| **Embeddings** | SentenceTransformers (BGE-small-en) | Query + document vectors for RAG |
+| **Vector DB** | Qdrant | Stores ingested Bible verse embeddings |
+| **Relational DB** | PostgreSQL 16 | Durable sessions, turns, image metadata |
+| **Image gen** | ComfyUI + Juggernaut XL (SDXL) | Christian-themed image rendering |
+| **Tools** | FastMCP (streamable-http) | Exposes backend capabilities to LangChain/agents |
+| **Ingestion** | Python + kagglehub | Downloads and embeds the Kaggle Bible corpus |
+| **Orchestration** | Docker Compose, bash (`script.sh`) | Dev (mocks, no GPU) and prod (GPU) profiles |
+| **Testing** | LangChain tool-calling harness | Validates MCP tools and intent routing |
 
-The backend is the single gateway; the UI never talks to the GPU services
-directly. `vllm` and `comfyui` are gated behind a Compose `gpu` profile so the
-Mac can skip them entirely.
+---
 
 ## Ports
 
-| Service          | Port        | Notes                              |
-| ---------------- | ----------- | ---------------------------------- |
-| UI (Next.js)     | 3000        |                                    |
-| FastAPI gateway  | 8080        | single entrypoint for the UI       |
-| vLLM (Qwen2.5-VL)| 8000        | GPU profile only                   |
-| FastMCP server   | 8001        |                                    |
-| ComfyUI          | 8188        | GPU profile only                   |
-| Qdrant           | 6333 / 6334 | HTTP / gRPC                        |
+| Service | Default port | Profile | Notes |
+| ------- | ------------ | ------- | ----- |
+| **UI** (Next.js) | 3000 | always | Browser-facing chat app |
+| **Backend** (FastAPI) | 8080 | always | Single gateway for UI and MCP |
+| **MCP server** (FastMCP) | 8001 | always | Tool surface for agents |
+| **Postgres** | 5432 | always | Durable chat store |
+| **Qdrant** (HTTP) | 6333 | always | Vector search for RAG |
+| **Qdrant** (gRPC) | 6334 | always | Optional gRPC client |
+| **vLLM** (Qwen2.5-VL) | 8000 | `gpu` | OpenAI-compatible LLM API |
+| **ComfyUI** (Juggernaut) | 8188 | `gpu` | SDXL image generation |
 
-## Prerequisites
+All host ports are overridable via `.env` (`UI_PORT`, `BACKEND_PORT`, etc.). The UI
+never talks to GPU services directly — only to the backend on `:8080`.
 
-- Docker + Docker Compose v2 (`docker compose`, not `docker-compose`).
-- For prod: a Linux + NVIDIA GPU host (EC2) with the NVIDIA Container Toolkit so
-  `nvidia-smi` works inside containers.
+---
 
-## Quick start
+## How to run
 
-The single orchestrator (`infrastructure/script/script.sh`, wrapped by the
-Makefile) handles everything: preflight, build with error detection, model
-download (prod), startup, health waiting, Bible ingestion, and a smoke test.
-It bootstraps `.env` from `.env.example` on first run.
+### Prerequisites
 
-### Dev (this Mac, no GPU)
+- Docker + Docker Compose v2
+- **Dev:** runs on a Mac or any machine without a GPU
+- **Prod:** Linux host with NVIDIA GPU + NVIDIA Container Toolkit
 
-Runs UI + backend + MCP + Qdrant with hot reload, a mock LLM, and a placeholder
-image generator. RAG grounding is real (CPU embeddings + Qdrant), so chat
-returns genuine verse citations without a GPU.
+### Quick start
+
+The orchestrator at `infrastructure/script/script.sh` (wrapped by the Makefile) handles
+everything: preflight, build, model download (prod), startup, health checks, Bible
+ingestion, and a smoke test. It bootstraps `.env` from `.env.example` on first run.
 
 ```bash
+# Dev — mocks for LLM/image, real RAG on CPU, hot reload
 make dev
-```
 
-Then:
-
-- UI: http://localhost:3000
-- Backend health: http://localhost:8080/health/readyz
-- Grounded search: `POST http://localhost:8080/api/v1/search`
-- Chat returns a reply plus real `citations[]` from the ingested corpus.
-
-### Prod (EC2, GPU)
-
-Brings up the full stack including real Qwen2.5-VL (vLLM) and ComfyUI/Juggernaut.
-
-```bash
-# 1. Set HF_TOKEN in .env if the model repo is gated.
-# 2. Switch backends in .env: LLM_BACKEND=vllm, IMAGE_BACKEND=comfy
+# Prod — full GPU stack (vLLM + ComfyUI/Juggernaut)
 make prod
 ```
 
-`make prod` (i.e. `script.sh up prod`) additionally:
+After `make dev`:
 
-1. Downloads the Juggernaut checkpoint into `models/checkpoints/` from
-   `JUGGERNAUT_HF_REPO`+`JUGGERNAUT_HF_FILE` (or `JUGGERNAUT_URL`), with optional
-   `JUGGERNAUT_SHA256` verification - no manual file drop needed.
-2. Pre-pulls the Qwen2.5-VL weights into the `hf_cache` volume when
-   `PREPULL_LLM=true`, so the first vLLM boot is fast.
+| URL | Purpose |
+| --- | ------- |
+| http://localhost:3000 | Chat UI |
+| http://localhost:8080/health/readyz | Backend readiness |
+| http://localhost:8080/docs | FastAPI Swagger UI |
 
-See [infrastructure/README.md](infrastructure/README.md) for all orchestrator
-commands (`doctor`, `build`, `models`, `ingest`, `health`, `logs`, `down`).
+### Other commands
 
-## EC2 notes
-
-- Requires the NVIDIA driver + NVIDIA Container Toolkit on the host.
-- Open only the security-group ports you need (at minimum 3000 and 8080).
-- Set `NEXT_PUBLIC_API_URL=http://<ec2-host-or-domain>:8080` in `.env` so the
-  browser can reach the backend.
-- `models/` and `hf_cache/` are gitignored; weights live on the host volume.
-
-## Layout
-
-```
-docker-compose.yml        base service definitions
-docker-compose.dev.yml    dev overrides (mocks, hot reload, no GPU)
-docker-compose.prod.yml   prod overrides (built images, GPU, restart policies)
-.env.example              documented configuration
-Makefile                  thin wrappers around the orchestrator
-infrastructure/           one-command orchestration (script.sh + lib/)
-services/
-  backend/                FastAPI gateway (:8080) - chat, RAG search, verify, image, moderate, session/memory, health
-  mcp-server/             FastMCP server (:8001) - ping, scripture_search, verse_verify, generate_image, prompt_composer, moderate
-  ui/                     Next.js UI (:3000)
-  comfyui/                ComfyUI image (:8188)
-  ingest/                 one-shot Bible ingestion job (verses -> Qdrant)
-models/                   mounted checkpoints (gitignored)
+```bash
+make doctor    # preflight checks only
+make build     # build images (with error detection)
+make models    # download Juggernaut + pre-pull LLM (prod)
+make ingest    # re-run Bible corpus ingestion
+make health    # wait for all services healthy
+make logs SVC=backend   # tail a service log
+make down      # stop dev stack
+make down-prod # stop prod stack
 ```
 
-## API endpoints (backend :8080)
+See [infrastructure/README.md](infrastructure/README.md) and
+[docs/infrastructure.md](docs/infrastructure.md) for orchestrator details.
 
-- `POST /api/v1/chat` - grounded chat; `generate_image: true` also returns a base64 image.
-- `POST /api/v1/search` - scripture retrieval (RAG), denomination-filtered.
-- `POST /api/v1/verify` - anti-hallucination check of references in text (valid | unknown_book | nonexistent | misquote).
-- `POST /api/v1/chat/stream` - same pipeline as `/chat`, streamed as Server-Sent Events (`meta` -> `token`* -> `final` -> `done`).
-- `GET /api/v1/sessions` - list stored conversations (durable store).
-- `GET /api/v1/session/{id}/history` - full turn history with image URLs (durable store).
-- `POST /api/v1/image` - Christian-themed image generation (safety guard + style templating; refuses disallowed prompts).
-- `POST /api/v1/compose_image_prompt` - LLM-assisted structured image prompt (no render).
-- `POST /api/v1/moderate` - screen text with the safety rules (`stage`: input | output).
-- `GET /api/v1/session/{id}` - inspect conversation memory (summary + recent turns).
-- `DELETE /api/v1/session/{id}` - clear a conversation's memory.
-- `GET /health/readyz` - readiness (LLM, image, Qdrant).
+---
+
+## What problem it solves
+
+General-purpose LLMs hallucinate scripture, alter verses, and lack denomination-aware
+framing. This project addresses that with a purpose-built pipeline:
+
+1. **Grounded answers** — RAG retrieves real verses from an ingested Bible corpus
+   (Kaggle `oswinrh/bible`, 7 translations) instead of relying on model memory.
+2. **Anti-hallucination** — Post-generation verification checks every cited reference
+   against a canonical verse store (valid, misquote, nonexistent, unknown book).
+3. **Intent-aware routing** — Small talk skips RAG; scripture questions get retrieval;
+   image requests go through an LLM prompt-composer and safety guard before rendering.
+4. **Safety layer** — Rule-based input/output moderation blocks hateful, violent,
+   jailbreak, and self-harm content with on-brand refusals.
+5. **Conversational memory** — Rolling summary + last-N turns keep long chats coherent
+   without blowing the context window; history persists in Postgres.
+6. **Christian image generation** — ComfyUI + Juggernaut produces reverent artwork with
+   style templating and content safety checks.
+7. **Agent-ready tools** — FastMCP exposes search, verify, compose, image, and moderate
+   so LangChain agents can chain the same capabilities.
+
+---
+
+## Architecture overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  Browser (Next.js UI :3000)                                             │
+│  streaming chat · session sidebar · denomination selector · images      │
+└───────────────────────────────┬─────────────────────────────────────────┘
+                                │ REST / SSE
+                                ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│  FastAPI Gateway (:8080)                                                │
+│  chat · search · verify · image · compose · moderate · session · health │
+│  ┌─────────────┐ ┌──────────────┐ ┌────────────┐ ┌───────────────────┐  │
+│  │ Orchestrator│ │ Moderation   │ │ Retriever  │ │ Chat store        │  │
+│  │ intent route│ │ input/output │ │ RAG + canon│ │ Postgres + media  │  │
+│  └─────────────┘ └──────────────┘ └────────────┘ └───────────────────┘  │
+└───────┬──────────────┬──────────────┬──────────────┬────────────────────┘
+        │              │              │              │
+        ▼              ▼              ▼              ▼
+   vLLM :8000    ComfyUI :8188   Qdrant :6333   Postgres :5432
+   Qwen2.5-VL    Juggernaut XL   verse vectors   sessions/turns/images
+        ▲
+        │ MCP tools delegate to backend
+   FastMCP :8001  (scripture_search · verse_verify · generate_image ·
+                   prompt_composer · moderate · ping)
+```
+
+**Request flow (chat):**
+
+1. Input moderation → rewrite guard → load memory (summary + last 3 turns)
+2. Intent classification (normal / scripture / image)
+3. RAG retrieval (scripture intent only) → build system prompt → LLM
+4. Output moderation → verse verification → image compose/render (if image intent)
+5. Persist turn to Postgres → stream tokens to UI
+
+Full diagrams and per-service detail: [docs/architecture/overview.md](docs/architecture/overview.md).
+
+---
+
+## API endpoints (FastAPI :8080)
+
+### Chat & streaming
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| `POST` | `/api/v1/chat` | Full chat pipeline; returns JSON `ChatResponse` |
+| `POST` | `/api/v1/chat/stream` | Same pipeline, streamed as SSE (`meta` → `token`* → `final` → `done`) |
+
+Both accept `{ message, session_id?, denomination?, generate_image?, history? }`.
+
+### RAG & verification
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| `POST` | `/api/v1/search` | Scripture retrieval; returns ranked verses + citations |
+| `POST` | `/api/v1/verify` | Anti-hallucination check of references in text |
+
+### Image
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| `POST` | `/api/v1/image` | Generate a Christian-themed image (safety guard + ComfyUI) |
+| `POST` | `/api/v1/compose_image_prompt` | LLM-assisted scene prompt (no render) |
+
+### Safety & sessions
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| `POST` | `/api/v1/moderate` | Screen text (`stage`: input \| output) |
+| `GET` | `/api/v1/sessions` | List stored conversations |
+| `GET` | `/api/v1/session/{id}/history` | Full turn history with image URLs |
+| `GET` | `/api/v1/session/{id}` | Memory snapshot (summary + recent turns) |
+| `DELETE` | `/api/v1/session/{id}` | Delete a conversation |
+
+### Health & media
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| `GET` | `/health/healthz` | Liveness |
+| `GET` | `/health/readyz` | Readiness (LLM, image backend, Qdrant) |
+| `GET` | `/media/{filename}` | Persisted generated images |
+
+Interactive docs: http://localhost:8080/docs
+
+---
+
+## vLLM endpoint (:8000, prod only)
+
+vLLM serves **Qwen/Qwen2.5-VL-3B-Instruct** with an OpenAI-compatible API:
+
+| Path | Description |
+| ---- | ----------- |
+| `POST /v1/chat/completions` | Chat (used by backend `VLLMClient`) |
+| `GET /health` | vLLM health |
+
+The backend connects via `VLLM_BASE_URL=http://vllm:8000/v1`. In dev,
+`LLM_BACKEND=mock` bypasses vLLM entirely.
+
+---
 
 ## MCP tools (:8001)
 
-`ping`, `scripture_search`, `verse_verify`, `generate_image`, `prompt_composer`, `moderate` - all delegate to the backend (URL from env).
+| Tool | Delegates to | Purpose |
+| ---- | ------------ | ------- |
+| `ping` | — | Liveness |
+| `scripture_search` | `POST /api/v1/search` | RAG verse retrieval |
+| `verse_verify` | `POST /api/v1/verify` | Anti-hallucination check |
+| `generate_image` | `POST /api/v1/image` | Image generation |
+| `prompt_composer` | `POST /api/v1/compose_image_prompt` | LLM image prompt |
+| `moderate` | `POST /api/v1/moderate` | Safety screening |
 
-## History sidebar (Phase 10)
+Transport: streamable-http at `http://localhost:8001/mcp`.
 
-The UI ([services/ui/app/page.tsx](services/ui/app/page.tsx)) has a sidebar that
-lists stored conversations from `GET /api/v1/sessions`. Clicking one loads its full
-history (including images) via `GET /api/v1/session/{id}/history`; "New chat" starts
-a fresh session; the delete control removes a conversation via
-`DELETE /api/v1/session/{id}`. The active session id is persisted in `localStorage`,
-so a reload returns to the same conversation, and the list refreshes after each
-reply. When `CHAT_STORE_ENABLED=false`, the sidebar simply stays empty (chat still
-works in-memory).
+---
 
-## Durable store + image persistence (Phase 9)
+## RAG pipeline
 
-Chat history is persisted in Postgres via
-[services/backend/app/services/chat_store.py](services/backend/app/services/chat_store.py),
-which implements the same `SessionMemory` interface used for the prompt window
-(so the rolling summary + last-N turns logic is unchanged) while retaining the
-full turn history durably. Tables: `sessions`, `turns`, `images`
-([services/backend/app/db/models.py](services/backend/app/db/models.py)); the
-schema is created on startup.
+1. **Ingest** — `services/ingest` downloads the Kaggle Bible corpus (or bundled sample),
+   chunks verses, embeds with BGE-small-en, and upserts into Qdrant (`bible_verses`).
+2. **Query** — On scripture intent, the retriever embeds the user message (with a BGE
+   query prefix), searches Qdrant, and filters by denomination canon.
+3. **Ground** — Top-K verses are injected into the system prompt as citations.
+4. **Verify** — After the LLM reply, every referenced verse is checked against the
+   canonical store (fuzzy match via `difflib`).
 
-Rendered images are written to the `media_data` volume (`MEDIA_DIR`) and served as
-static files at `MEDIA_URL_PATH` (`/media`). Chat responses and the stream `final`
-event carry a relative `image_url` (e.g. `/media/<id>.png`) instead of base64; the
-UI prefixes it with the API base. Set `CHAT_STORE_ENABLED=false` to fall back to
-in-process memory + base64 images (no Postgres needed).
+Configuration: `RAG_ENABLED`, `EMBEDDING_MODEL`, `QDRANT_COLLECTION`, `RAG_TOP_K`,
+`BIBLE_SOURCES`, `VERIFY_ENABLED`, `VERIFY_TRANSLATION`.
 
-```bash
-curl -s http://localhost:8080/api/v1/sessions | jq
-curl -s http://localhost:8080/api/v1/session/demo/history | jq
+Details: [docs/services/qdrant.md](docs/services/qdrant.md),
+[docs/services/ingest.md](docs/services/ingest.md).
+
+---
+
+## Documentation
+
+| Document | Contents |
+| -------- | -------- |
+| [docs/README.md](docs/README.md) | Documentation index |
+| [docs/architecture/overview.md](docs/architecture/overview.md) | System architecture, data flow, phase map |
+| [docs/services/backend.md](docs/services/backend.md) | FastAPI gateway — routers, services, clients |
+| [docs/services/ui.md](docs/services/ui.md) | Next.js chat UI — streaming, sidebar, API client |
+| [docs/services/mcp-server.md](docs/services/mcp-server.md) | FastMCP tool server |
+| [docs/services/vllm.md](docs/services/vllm.md) | vLLM + Qwen2.5-VL serving |
+| [docs/services/comfyui.md](docs/services/comfyui.md) | ComfyUI + Juggernaut image generation |
+| [docs/services/qdrant.md](docs/services/qdrant.md) | Vector DB, RAG retrieval, verification |
+| [docs/services/postgres.md](docs/services/postgres.md) | Durable chat store, image persistence |
+| [docs/services/ingest.md](docs/services/ingest.md) | Bible corpus ingestion pipeline |
+| [docs/infrastructure.md](docs/infrastructure.md) | Orchestrator, Docker Compose, dev vs prod |
+| [infrastructure/README.md](infrastructure/README.md) | Script commands and env vars |
+
+---
+
+## Project layout
+
+```
+docker-compose.yml          base service definitions
+docker-compose.dev.yml      dev overrides (mocks, hot reload, no GPU)
+docker-compose.prod.yml     prod overrides (GPU profile, restart policies)
+.env.example                documented configuration
+Makefile                    thin wrappers around the orchestrator
+infrastructure/             one-command orchestration (script.sh + lib/)
+docs/                       architecture and per-service documentation
+services/
+  backend/                  FastAPI gateway (:8080)
+  mcp-server/               FastMCP server (:8001)
+  ui/                       Next.js UI (:3000)
+  comfyui/                  ComfyUI image (:8188)
+  ingest/                   one-shot Bible ingestion job
+models/                     mounted checkpoints (gitignored)
+tests/langchain_tools/      MCP + intent routing test harness
 ```
 
-## Streaming + context window (Phase 8)
+---
 
-`POST /api/v1/chat/stream` runs the exact same orchestrated/moderated/grounded
-pipeline as `/chat` (shared `prepare_turn()` / `postprocess()` in
-[services/backend/app/routers/chat.py](services/backend/app/routers/chat.py)) but
-emits Server-Sent Events so the UI renders the answer as it is generated:
+## EC2 / production notes
 
-| event   | payload                                                        |
-| ------- | -------------------------------------------------------------- |
-| `meta`  | `{intent, citations, session_id, backend}` (sent first)        |
-| `token` | `{delta}` (one per chunk; mock streams word-by-word)           |
-| `final` | `{reply, refused, moderated, moderation, verification, image_base64}` |
-| `done`  | `{}`                                                           |
-
-Input moderation and the rewrite guard still short-circuit before any LLM call
-(they emit the refusal as a single `token` then `final`). Output moderation and
-verse verification run on the accumulated reply after streaming; if moderation
-replaces the text, `final.reply` carries the safe replacement and the UI swaps the
-streamed bubble.
-
-Each request sends a bounded context window: the rolling conversation summary plus
-only the last `CONTEXT_RECENT_TURNS` turns (default 3). Server memory keeps more
-turns (`MEMORY_MAX_TURNS`) for the session view, so storage stays rich while the
-prompt stays small. Try it:
-
-```bash
-curl -N -X POST http://localhost:8080/api/v1/chat/stream \
-  -H 'Content-Type: application/json' \
-  -d '{"message":"What does the Bible say about hope?","session_id":"demo"}'
-```
-
-## Intent orchestrator (Phase 7)
-
-Every chat turn is routed by [services/backend/app/services/orchestrator.py](services/backend/app/services/orchestrator.py)
-so work happens only when needed:
-
-- **normal** -> answer directly, no RAG (cheap small talk).
-- **scripture** (mentions Jesus/Bible/faith/etc.) -> RAG retrieval + grounded answer + verse verification.
-- **image** (mentions image/paint/draw/etc., or `generate_image=true`) -> the
-  LLM **prompt-composer** ([image_prompt.py](services/backend/app/services/image_prompt.py))
-  turns the request into a tasteful Christian-art scene, which is safety-checked
-  and rendered (mock in dev, Juggernaut/ComfyUI in prod).
-
-Classification is rule-first (deterministic, GPU-free); with
-`ORCHESTRATOR_LLM_INTENT=true` (and `LLM_BACKEND=vllm`) the LLM breaks ties on
-ambiguous messages. The chosen route is returned as `intent` on the chat response.
-The composer is also exposed standalone via `POST /api/v1/compose_image_prompt`
-and the `prompt_composer` MCP tool, so an agent can chain compose -> render. The
-LangChain tool-calling harness in [tests/langchain_tools/](tests/langchain_tools/)
-validates this routing and the MCP tools.
-
-## Safety & moderation (Phase 6)
-
-A layered guard in [services/backend/app/services/moderation.py](services/backend/app/services/moderation.py)
-runs on every chat turn:
-
-- **Input moderation** (before the LLM) blocks hateful, sexual, violent, illegal,
-  self-harm, and jailbreak/prompt-injection requests with an on-brand refusal
-  (`MODERATION_REFUSAL`); self-harm gets a compassionate, help-directing message.
-- **Output moderation** (after the LLM) scans the reply and replaces it if unsafe
-  content slipped through (`moderated: true` in the response).
-- **Layered**: a deterministic rule layer is always on (works in dev mock). With
-  `MODERATION_LLM_JUDGE=true` (and `LLM_BACKEND=vllm`), Qwen2.5-VL gives a second
-  opinion on borderline input via `LLMClient.moderate`.
-- The image guard ([image_prompt.py](services/backend/app/services/image_prompt.py))
-  reuses the same patterns, so unsafe-content rules live in one place.
-
-Screen arbitrary text directly via `POST /api/v1/moderate` or the `moderate` MCP tool.
-
-## Image generation (Phase 4)
-
-ComfyUI + Juggernaut SDXL via [services/backend/workflows/baseline_sdxl.json](services/backend/workflows/baseline_sdxl.json).
-All knobs are env-driven (`IMAGE_CHECKPOINT`, `IMAGE_STEPS`, `IMAGE_CFG`, `IMAGE_WIDTH`,
-`IMAGE_HEIGHT`, `IMAGE_SAMPLER`, `IMAGE_SCHEDULER`, `IMAGE_STYLE_TEMPLATE`,
-`IMAGE_NEGATIVE_PROMPT`, `IMAGE_SAFETY_ENABLED`). In dev the mock backend returns a
-placeholder PNG; in prod (gpu profile) ComfyUI renders a real image.
-
-## Conversational core (Phase 5)
-
-Tone, memory, and denomination framing are decoupled so conversations stay
-consistent across turns:
-
-- **Tone** - the system prompt is composed in
-  [services/backend/app/services/prompt_builder.py](services/backend/app/services/prompt_builder.py)
-  from `LLM_PERSONA` + fixed conduct rules (pastoral, humble, cite inline, never
-  alter Scripture). `LLM_TEMPERATURE` keeps sampling steady.
-- **Memory** - pass a `session_id` on `POST /api/v1/chat` and the backend keeps
-  server-side memory ([services/backend/app/services/memory.py](services/backend/app/services/memory.py)):
-  the last `MEMORY_MAX_TURNS` turns verbatim plus a rolling summary of older
-  turns, folded in by the LLM once a conversation passes `MEMORY_SUMMARY_THRESHOLD`.
-  Without a `session_id` the endpoint stays stateless and uses the request's
-  `history`. In-memory store fits dev / a single replica; the `SessionMemory`
-  interface allows a shared backend (e.g. Redis) later.
-- **Denomination framing** - `denomination` (neutral | catholic | protestant |
-  orthodox) both filters the retrieval canon (`retriever.py`) and changes how
-  disputed doctrine is framed in the system prompt. `neutral` presents the main
-  views fairly; a specific tradition is framed within it.
-
-The whole flow is demonstrable with the mock LLM (no GPU): the mock reflects the
-turn number, memory recall, and the active denomination framing. In prod
-Qwen2.5-VL produces the real replies and summaries.
-
-## Data ingestion (format-agnostic)
-
-[services/ingest/data/sources.json](services/ingest/data/sources.json) declares each source by
-`transport` (`kaggle` | `local`), `format` (`csv` | `json`), and a `fields` map. Adding a new
-format/transport is a small reader/transport plugin in [services/ingest/ingest.py](services/ingest/ingest.py),
-not a rewrite. Kaggle (`oswinrh/bible`) is just one transport; a Kaggle failure falls back to the
-bundled sample.
-
-## Exit criteria (Phase 1)
-
-- **Mac / dev:** `make dev` brings up UI, backend, MCP, and Qdrant; a chat
-  round-trips through the mock LLM and returns a placeholder image;
-  `/health/readyz` is green.
-- **EC2 / prod:** `make prod` brings up the full GPU stack; a real Qwen2.5-VL
-  reply and a real Juggernaut image are produced end-to-end.
-# AI-Assisment-solulab
+- Requires NVIDIA driver + NVIDIA Container Toolkit on the host.
+- Open security-group ports 3000 and 8080 (minimum).
+- Set `NEXT_PUBLIC_API_URL=http://<host>:8080` in `.env`.
+- Set `LLM_BACKEND=vllm` and `IMAGE_BACKEND=comfy` in `.env`.
+- Set `HF_TOKEN` if the Qwen model repo is gated.
+- Weights live in Docker volumes (`hf_cache`, `models/`) — not committed to git.
