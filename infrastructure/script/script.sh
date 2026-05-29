@@ -70,7 +70,9 @@ do_down() {
 
 do_ingest() {
     log_step "Ingesting Bible corpus (idempotent)"
-    if compose run --rm ingest; then
+    # The ingest service is profile-gated, so `compose build` skips it; build
+    # here (with --build) so the loader/manifest are never stale.
+    if compose run --rm --build ingest; then
         log_ok "ingestion complete"
     else
         die "ingestion failed (see output above)"
