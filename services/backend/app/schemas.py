@@ -21,11 +21,16 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, description="Latest user message")
     history: list[ChatMessage] = Field(
-        default_factory=list, description="Prior turns, oldest first"
+        default_factory=list,
+        description="Prior turns (used only when session_id is absent)",
+    )
+    session_id: str | None = Field(
+        default=None,
+        description="Opaque conversation id; when set, server-side memory is used",
     )
     denomination: Denomination = Field(
         default=Denomination.NEUTRAL,
-        description="Filters which canon books are eligible for grounding",
+        description="Filters canon for grounding and frames disputed doctrine",
     )
     generate_image: bool = Field(
         default=False, description="Also generate a themed image for this turn"
@@ -70,6 +75,9 @@ class ChatResponse(BaseModel):
         default=False, description="True when the assistant refused to alter scripture"
     )
     image_base64: str | None = None
+    session_id: str | None = Field(
+        default=None, description="Echoes the request session_id when memory is used"
+    )
     backend: BackendInfo
 
 
@@ -108,6 +116,13 @@ class VerifyResponse(BaseModel):
     text: str
     translation: str
     verification: list[VerificationItem]
+
+
+class SessionStateResponse(BaseModel):
+    session_id: str
+    summary: str
+    recent: list[ChatMessage]
+    turns: int
 
 
 class DependencyStatus(BaseModel):

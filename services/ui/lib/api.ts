@@ -1,5 +1,7 @@
 export type Role = "user" | "assistant";
 
+export type Denomination = "neutral" | "catholic" | "protestant" | "orthodox";
+
 export interface ChatMessage {
   role: Role;
   content: string;
@@ -8,6 +10,7 @@ export interface ChatMessage {
 export interface ChatResponse {
   reply: string;
   image_base64: string | null;
+  session_id: string | null;
   backend: { llm: string; image: string };
 }
 
@@ -17,6 +20,8 @@ export async function sendChat(
   message: string,
   history: ChatMessage[],
   generateImage: boolean,
+  sessionId: string,
+  denomination: Denomination = "neutral",
 ): Promise<ChatResponse> {
   const res = await fetch(`${API_URL}/api/v1/chat`, {
     method: "POST",
@@ -24,6 +29,8 @@ export async function sendChat(
     body: JSON.stringify({
       message,
       history,
+      session_id: sessionId,
+      denomination,
       generate_image: generateImage,
     }),
   });

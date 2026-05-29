@@ -107,7 +107,7 @@ docker-compose.prod.yml   prod overrides (built images, GPU, restart policies)
 Makefile                  thin wrappers around the orchestrator
 infrastructure/           one-command orchestration (script.sh + lib/)
 services/
-  backend/                FastAPI gateway (:8080) - chat, RAG search, verify, image, health
+  backend/                FastAPI gateway (:8080) - chat, RAG search, verify, image, session/memory, health
   mcp-server/             FastMCP server (:8001) - ping, scripture_search, verse_verify, generate_image
   ui/                     Next.js UI (:3000)
   comfyui/                ComfyUI image (:8188)
@@ -121,6 +121,8 @@ models/                   mounted checkpoints (gitignored)
 - `POST /api/v1/search` - scripture retrieval (RAG), denomination-filtered.
 - `POST /api/v1/verify` - anti-hallucination check of references in text (valid | unknown_book | nonexistent | misquote).
 - `POST /api/v1/image` - Christian-themed image generation (safety guard + style templating; refuses disallowed prompts).
+- `GET /api/v1/session/{id}` - inspect conversation memory (summary + recent turns).
+- `DELETE /api/v1/session/{id}` - clear a conversation's memory.
 - `GET /health/readyz` - readiness (LLM, image, Qdrant).
 
 ## MCP tools (:8001)
@@ -134,6 +136,31 @@ All knobs are env-driven (`IMAGE_CHECKPOINT`, `IMAGE_STEPS`, `IMAGE_CFG`, `IMAGE
 `IMAGE_HEIGHT`, `IMAGE_SAMPLER`, `IMAGE_SCHEDULER`, `IMAGE_STYLE_TEMPLATE`,
 `IMAGE_NEGATIVE_PROMPT`, `IMAGE_SAFETY_ENABLED`). In dev the mock backend returns a
 placeholder PNG; in prod (gpu profile) ComfyUI renders a real image.
+
+## Conversational core (Phase 5)
+
+Tone, memory, and denomination framing are decoupled so conversations stay
+consistent across turns:
+
+- **Tone** - the system prompt is composed in
+  [services/backend/app/services/prompt_builder.py](services/backend/app/services/prompt_builder.py)
+  from `LLM_PERSONA` + fixed conduct rules (pastoral, humble, cite inline, never
+  alter Scripture). `LLM_TEMPERATURE` keeps sampling steady.
+- **Memory** - pass a `session_id` on `POST /api/v1/chat` and the backend keeps
+  server-side memory ([services/backend/app/services/memory.py](services/backend/app/services/memory.py)):
+  the last `MEMORY_MAX_TURNS` turns verbatim plus a rolling summary of older
+  turns, folded in by the LLM once a conversation passes `MEMORY_SUMMARY_THRESHOLD`.
+  Without a `session_id` the endpoint stays stateless and uses the request's
+  `history`. In-memory store fits dev / a single replica; the `SessionMemory`
+  interface allows a shared backend (e.g. Redis) later.
+- **Denomination framing** - `denomination` (neutral | catholic | protestant |
+  orthodox) both filters the retrieval canon (`retriever.py`) and changes how
+  disputed doctrine is framed in the system prompt. `neutral` presents the main
+  views fairly; a specific tradition is framed within it.
+
+The whole flow is demonstrable with the mock LLM (no GPU): the mock reflects the
+turn number, memory recall, and the active denomination framing. In prod
+Qwen2.5-VL produces the real replies and summaries.
 
 ## Data ingestion (format-agnostic)
 

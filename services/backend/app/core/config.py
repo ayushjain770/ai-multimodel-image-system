@@ -31,6 +31,13 @@ class Settings(BaseSettings):
     vllm_base_url: str = "http://vllm:8000/v1"
     vllm_model: str = "Qwen/Qwen2.5-VL-3B-Instruct"
     llm_timeout: float = 120.0
+    # Sampling temperature for chat completions (lower = steadier tone).
+    llm_temperature: float = 0.4
+    # Overridable persona/tone the system prompt is built around.
+    llm_persona: str = (
+        "You are a Christianity-focused assistant. You are pastoral, humble, and "
+        "non-dogmatic, speaking with warmth and care."
+    )
 
     # ComfyUI / image generation
     comfyui_base_url: str = "http://comfyui:8188"
@@ -76,6 +83,14 @@ class Settings(BaseSettings):
     verify_translation: str = "KJV"
     # difflib ratio below which a quoted verse is treated as a misquote.
     verify_fuzzy_threshold: float = 0.6
+
+    # Conversation memory (server-side, keyed by session_id)
+    memory_enabled: bool = True
+    # Recent turns kept verbatim in the prompt (one turn = user + assistant).
+    memory_max_turns: int = 8
+    # When stored turns exceed this, the oldest are folded into a running summary
+    # so prompts stay bounded across long conversations.
+    memory_summary_threshold: int = 12
 
 
 settings = Settings()

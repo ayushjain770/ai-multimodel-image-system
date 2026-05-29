@@ -4,8 +4,8 @@
   - MockLLMClient: deterministic replies, no network/GPU (Mac dev).
   - VLLMClient: real Qwen2.5-VL via the vLLM OpenAI-compatible API (EC2/prod).
 
-Later phases add grounding/safety on top of this interface without changing
-callers.
+The interface carries grounding (citations), tone (system_prompt) and memory
+(summarize) so callers stay backend-agnostic.
 """
 
 from abc import ABC, abstractmethod
@@ -18,11 +18,18 @@ from app.schemas import ChatMessage, Citation
 
 logger = get_logger(__name__)
 
+# Fallback used only when a caller does not supply a built system prompt.
 _SYSTEM_PROMPT = (
     "You are a Christianity-focused assistant. Be pastoral, humble, and "
     "non-dogmatic. Ground your answers in the Scripture passages provided in "
     "the context and cite them by reference (e.g. John 3:16). If the context "
     "does not contain a relevant passage, say so rather than inventing one."
+)
+
+_SUMMARY_SYSTEM_PROMPT = (
+    "You compress chat history into a concise third-person summary that captures "
+    "the user's questions, any stated preferences (e.g. denomination), and key "
+    "points discussed. Keep it under 150 words. Do not add new information."
 )
 
 
@@ -33,6 +40,14 @@ def _format_context(citations: list[Citation]) -> str:
     return "Scripture context:\n" + "\n".join(lines)
 
 
+def _denomination_tag(system_prompt: str | None) -> str:
+    if system_prompt:
+        for tradition in ("Catholic", "Protestant", "Orthodox"):
+            if f"{tradition} tradition" in system_prompt:
+                return tradition.lower()
+    return "neutral"
+
+
 class LLMClient(ABC):
     @abstractmethod
     async def chat(
@@ -40,7 +55,14 @@ class LLMClient(ABC):
         message: str,
         history: list[ChatMessage],
         citations: list[Citation] | None = None,
+        system_prompt: str | None = None,
     ) -> str: ...
+
+    @abstractmethod
+    async def summarize(
+        self, messages: list[ChatMessage], prior_summary: str = ""
+    ) -> str:
+        """Fold messages (plus any prior summary) into an updated summary."""
 
     @abstractmethod
     async def health(self) -> tuple[bool, str]:
@@ -58,6 +80,7 @@ class MockLLMClient(LLMClient):
         message: str,
         history: list[ChatMessage],
         citations: list[Citation] | None = None,
+        system_prompt: str | None = None,
     ) -> str:
         turn = len([m for m in history if m.role == "user"]) + 1
         cites = citations or []
@@ -66,10 +89,25 @@ class MockLLMClient(LLMClient):
             grounding = f" Grounded in: {refs}."
         else:
             grounding = " No matching scripture was retrieved."
+        has_summary = bool(system_prompt and "Conversation so far" in system_prompt)
+        if has_summary or turn > 1:
+            memory = " I recall our earlier conversation."
+        else:
+            memory = ""
+        framing = f" [{_denomination_tag(system_prompt)} framing]"
         return (
             f"[mock-llm] Peace be with you. You asked: \"{message}\" "
-            f"(turn {turn}).{grounding}"
+            f"(turn {turn}).{memory}{framing}{grounding}"
         )
+
+    async def summarize(
+        self, messages: list[ChatMessage], prior_summary: str = ""
+    ) -> str:
+        topics = [m.content.strip()[:60] for m in messages if m.role == "user"]
+        base = f"{prior_summary} " if prior_summary else ""
+        if not topics:
+            return prior_summary
+        return (base + "Earlier the user asked about: " + "; ".join(topics)).strip()
 
     async def health(self) -> tuple[bool, str]:
         return True, "mock backend always ready"
@@ -88,8 +126,9 @@ class VLLMClient(LLMClient):
         message: str,
         history: list[ChatMessage],
         citations: list[Citation] | None = None,
+        system_prompt: str | None = None,
     ) -> str:
-        messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": system_prompt or _SYSTEM_PROMPT}]
         messages += [{"role": m.role, "content": m.content} for m in history]
         context = _format_context(citations or [])
         user_content = f"{context}\n\nQuestion: {message}" if context else message
@@ -97,7 +136,35 @@ class VLLMClient(LLMClient):
 
         resp = await self._client.post(
             f"{self._base_url}/chat/completions",
-            json={"model": self._model, "messages": messages, "temperature": 0.4},
+            json={
+                "model": self._model,
+                "messages": messages,
+                "temperature": settings.llm_temperature,
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
+
+    async def summarize(
+        self, messages: list[ChatMessage], prior_summary: str = ""
+    ) -> str:
+        convo = "\n".join(f"{m.role}: {m.content}" for m in messages)
+        prefix = f"Existing summary:\n{prior_summary}\n\n" if prior_summary else ""
+        user_content = (
+            f"{prefix}New turns to fold into the summary:\n{convo}\n\n"
+            "Return the updated summary only."
+        )
+        resp = await self._client.post(
+            f"{self._base_url}/chat/completions",
+            json={
+                "model": self._model,
+                "messages": [
+                    {"role": "system", "content": _SUMMARY_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content},
+                ],
+                "temperature": 0.2,
+            },
         )
         resp.raise_for_status()
         data = resp.json()

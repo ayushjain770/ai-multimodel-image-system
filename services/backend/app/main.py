@@ -11,7 +11,8 @@ from app.clients.llm_client import build_llm_client
 from app.clients.qdrant_client import build_vector_client
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
-from app.routers import chat, health, image, search, verify
+from app.routers import chat, health, image, search, session, verify
+from app.services.memory import build_memory
 from app.services.retriever import Retriever
 from app.services.verifier import build_verifier
 
@@ -43,6 +44,11 @@ async def lifespan(app: FastAPI):
     else:
         app.state.verifier = None
         logger.info("Verification disabled (VERIFY_ENABLED=false)")
+    if settings.memory_enabled:
+        app.state.memory = build_memory(app.state.llm_client.summarize)
+    else:
+        app.state.memory = None
+        logger.info("Conversation memory disabled (MEMORY_ENABLED=false)")
     try:
         yield
     finally:
@@ -66,6 +72,7 @@ app.include_router(chat.router)
 app.include_router(search.router)
 app.include_router(verify.router)
 app.include_router(image.router)
+app.include_router(session.router)
 
 
 @app.get("/", tags=["meta"])
