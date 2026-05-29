@@ -1,11 +1,14 @@
 {
   "sources": [
     {
-      "type": "kaggle",
+      "name": "kaggle-bible",
+      "transport": "kaggle",
+      "format": "csv",
       "dataset_env": "KAGGLE_DATASET",
       "dataset": "oswinrh/bible",
-      "key_english": "key_english.csv",
-      "columns": { "id": "id", "book": "b", "chapter": "c", "verse": "v", "text": "t" },
+      "filter_translations": true,
+      "fields": { "book": "b", "chapter": "c", "verse": "v", "text": "t" },
+      "options": { "key_file": "key_english.csv" },
       "translations": [
         { "name": "KJV", "file": "t_kjv.csv", "canon_tags": ["protestant", "catholic", "orthodox"] },
         { "name": "ASV", "file": "t_asv.csv", "canon_tags": ["protestant", "catholic", "orthodox"] },
@@ -17,10 +20,14 @@
       ]
     },
     {
-      "type": "local_json",
-      "name": "DRA",
-      "file": "sample/deutero_sample.json",
-      "canon_tags": ["catholic", "orthodox"]
+      "name": "deutero-sample",
+      "transport": "local",
+      "format": "json",
+      "filter_translations": false,
+      "fields": { "book": "book", "chapter": "chapter", "verse": "verse", "text": "text" },
+      "translations": [
+        { "name": "DRA", "file": "sample/deutero_sample.json", "canon_tags": ["catholic", "orthodox"] }
+      ]
     }
   ]
 }

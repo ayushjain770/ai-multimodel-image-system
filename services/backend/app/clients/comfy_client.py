@@ -19,13 +19,17 @@ import httpx
 
 from app.core.config import ImageBackend, settings
 from app.core.logging import get_logger
+from app.services.image_prompt import ImageParams
 
 logger = get_logger(__name__)
 
 _WORKFLOW_PATH = Path(__file__).resolve().parents[2] / "workflows" / "baseline_sdxl.json"
 # Node ids inside baseline_sdxl.json (ComfyUI API format).
+_SAMPLER_NODE = "3"
+_CHECKPOINT_NODE = "4"
+_LATENT_NODE = "5"
 _POSITIVE_PROMPT_NODE = "6"
-_SEED_NODE = "3"
+_NEGATIVE_PROMPT_NODE = "7"
 
 
 def _make_placeholder_png(width: int = 512, height: int = 512) -> bytes:
@@ -55,8 +59,8 @@ def _make_placeholder_png(width: int = 512, height: int = 512) -> bytes:
 
 class ImageClient(ABC):
     @abstractmethod
-    async def generate(self, prompt: str) -> str:
-        """Return a base64-encoded PNG."""
+    async def generate(self, params: ImageParams) -> str:
+        """Render the given parameters and return a base64-encoded PNG."""
 
     @abstractmethod
     async def health(self) -> tuple[bool, str]: ...
@@ -66,8 +70,8 @@ class ImageClient(ABC):
 
 
 class MockImageClient(ImageClient):
-    async def generate(self, prompt: str) -> str:
-        logger.info("[mock-image] placeholder for prompt: %s", prompt[:80])
+    async def generate(self, params: ImageParams) -> str:
+        logger.info("[mock-image] placeholder for prompt: %s", params.positive[:80])
         return base64.b64encode(_make_placeholder_png()).decode("ascii")
 
     async def health(self) -> tuple[bool, str]:
@@ -82,9 +86,19 @@ class ComfyUIClient(ImageClient):
         self._client = httpx.AsyncClient(timeout=settings.image_timeout)
         self._workflow = json.loads(_WORKFLOW_PATH.read_text())
 
-    async def generate(self, prompt: str) -> str:
+    async def generate(self, params: ImageParams) -> str:
         workflow = json.loads(json.dumps(self._workflow))  # deep copy
-        workflow[_POSITIVE_PROMPT_NODE]["inputs"]["text"] = prompt
+        workflow[_POSITIVE_PROMPT_NODE]["inputs"]["text"] = params.positive
+        workflow[_NEGATIVE_PROMPT_NODE]["inputs"]["text"] = params.negative
+        workflow[_CHECKPOINT_NODE]["inputs"]["ckpt_name"] = params.checkpoint
+        workflow[_LATENT_NODE]["inputs"]["width"] = params.width
+        workflow[_LATENT_NODE]["inputs"]["height"] = params.height
+        sampler = workflow[_SAMPLER_NODE]["inputs"]
+        sampler["seed"] = params.seed
+        sampler["steps"] = params.steps
+        sampler["cfg"] = params.cfg
+        sampler["sampler_name"] = params.sampler
+        sampler["scheduler"] = params.scheduler
 
         queued = await self._client.post(
             f"{self._base_url}/prompt", json={"prompt": workflow}

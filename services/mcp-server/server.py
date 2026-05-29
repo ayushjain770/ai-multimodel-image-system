@@ -6,6 +6,8 @@ Tools:
                       gateway's /api/v1/search (URL from env, no hardcoding).
   - verse_verify    : anti-hallucination check of scripture references in text,
                       delegated to the backend gateway's /api/v1/verify.
+  - generate_image  : Christian-themed image generation, delegated to the
+                      backend gateway's /api/v1/image.
 """
 
 import os
@@ -66,6 +68,28 @@ def verse_verify(text: str) -> dict:
     resp = httpx.post(
         f"{BACKEND_URL}/api/v1/verify",
         json={"text": text},
+        timeout=HTTP_TIMEOUT,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+@mcp.tool
+def generate_image(prompt: str, denomination: str = "neutral") -> dict:
+    """Generate a reverent Christian-themed image for a prompt.
+
+    The backend applies safe style templating and refuses disallowed imagery.
+
+    Args:
+        prompt: Theme or subject to illustrate.
+        denomination: neutral | catholic | protestant | orthodox.
+
+    Returns the base64 PNG (image_base64), the prompt actually used, and whether
+    the request was refused.
+    """
+    resp = httpx.post(
+        f"{BACKEND_URL}/api/v1/image",
+        json={"prompt": prompt, "denomination": denomination},
         timeout=HTTP_TIMEOUT,
     )
     resp.raise_for_status()

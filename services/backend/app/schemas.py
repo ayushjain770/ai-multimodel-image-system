@@ -85,6 +85,21 @@ class SearchResponse(BaseModel):
     citations: list[Citation]
 
 
+class ImageRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, description="Theme/subject to illustrate")
+    denomination: Denomination = Denomination.NEUTRAL
+    negative: str | None = Field(default=None, description="Optional negative-prompt override")
+
+
+class ImageResponse(BaseModel):
+    image_base64: str | None = None
+    prompt_used: str | None = None
+    negative_used: str | None = None
+    refused: bool = False
+    reason: str | None = None
+    backend: str
+
+
 class VerifyRequest(BaseModel):
     text: str = Field(..., min_length=1, description="Text whose scripture refs are checked")
 

@@ -32,9 +32,26 @@ class Settings(BaseSettings):
     vllm_model: str = "Qwen/Qwen2.5-VL-3B-Instruct"
     llm_timeout: float = 120.0
 
-    # ComfyUI
+    # ComfyUI / image generation
     comfyui_base_url: str = "http://comfyui:8188"
     image_timeout: float = 300.0
+    image_checkpoint: str = "juggernautXL.safetensors"
+    image_steps: int = 30
+    image_cfg: float = 6.5
+    image_width: int = 1024
+    image_height: int = 1024
+    image_sampler: str = "dpmpp_2m"
+    image_scheduler: str = "karras"
+    # Style wrapper applied to every prompt ({theme} is substituted).
+    image_style_template: str = (
+        "reverent Christian fine-art illustration of {theme}, sacred, dignified, "
+        "soft natural light, painterly, highly detailed, tasteful composition"
+    )
+    image_negative_prompt: str = (
+        "lowres, blurry, watermark, signature, text, deformed, extra limbs, "
+        "nsfw, gore, hateful, offensive, mocking, blasphemous"
+    )
+    image_safety_enabled: bool = True
 
     # Qdrant
     qdrant_url: str = "http://qdrant:6333"

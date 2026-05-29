@@ -11,7 +11,7 @@ from app.clients.llm_client import build_llm_client
 from app.clients.qdrant_client import build_vector_client
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
-from app.routers import chat, health, search, verify
+from app.routers import chat, health, image, search, verify
 from app.services.retriever import Retriever
 from app.services.verifier import build_verifier
 
@@ -65,6 +65,7 @@ app.include_router(health.router)
 app.include_router(chat.router)
 app.include_router(search.router)
 app.include_router(verify.router)
+app.include_router(image.router)
 
 
 @app.get("/", tags=["meta"])

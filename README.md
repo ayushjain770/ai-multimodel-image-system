@@ -107,13 +107,41 @@ docker-compose.prod.yml   prod overrides (built images, GPU, restart policies)
 Makefile                  thin wrappers around the orchestrator
 infrastructure/           one-command orchestration (script.sh + lib/)
 services/
-  backend/                FastAPI gateway (:8080) - chat, RAG search, health
-  mcp-server/             FastMCP server (:8001) - ping, scripture_search
+  backend/                FastAPI gateway (:8080) - chat, RAG search, verify, image, health
+  mcp-server/             FastMCP server (:8001) - ping, scripture_search, verse_verify, generate_image
   ui/                     Next.js UI (:3000)
   comfyui/                ComfyUI image (:8188)
   ingest/                 one-shot Bible ingestion job (verses -> Qdrant)
 models/                   mounted checkpoints (gitignored)
 ```
+
+## API endpoints (backend :8080)
+
+- `POST /api/v1/chat` - grounded chat; `generate_image: true` also returns a base64 image.
+- `POST /api/v1/search` - scripture retrieval (RAG), denomination-filtered.
+- `POST /api/v1/verify` - anti-hallucination check of references in text (valid | unknown_book | nonexistent | misquote).
+- `POST /api/v1/image` - Christian-themed image generation (safety guard + style templating; refuses disallowed prompts).
+- `GET /health/readyz` - readiness (LLM, image, Qdrant).
+
+## MCP tools (:8001)
+
+`ping`, `scripture_search`, `verse_verify`, `generate_image` - all delegate to the backend (URL from env).
+
+## Image generation (Phase 4)
+
+ComfyUI + Juggernaut SDXL via [services/backend/workflows/baseline_sdxl.json](services/backend/workflows/baseline_sdxl.json).
+All knobs are env-driven (`IMAGE_CHECKPOINT`, `IMAGE_STEPS`, `IMAGE_CFG`, `IMAGE_WIDTH`,
+`IMAGE_HEIGHT`, `IMAGE_SAMPLER`, `IMAGE_SCHEDULER`, `IMAGE_STYLE_TEMPLATE`,
+`IMAGE_NEGATIVE_PROMPT`, `IMAGE_SAFETY_ENABLED`). In dev the mock backend returns a
+placeholder PNG; in prod (gpu profile) ComfyUI renders a real image.
+
+## Data ingestion (format-agnostic)
+
+[services/ingest/data/sources.json](services/ingest/data/sources.json) declares each source by
+`transport` (`kaggle` | `local`), `format` (`csv` | `json`), and a `fields` map. Adding a new
+format/transport is a small reader/transport plugin in [services/ingest/ingest.py](services/ingest/ingest.py),
+not a rewrite. Kaggle (`oswinrh/bible`) is just one transport; a Kaggle failure falls back to the
+bundled sample.
 
 ## Exit criteria (Phase 1)
 

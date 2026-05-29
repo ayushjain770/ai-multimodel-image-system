@@ -22,6 +22,7 @@ from app.schemas import (
     Citation,
     VerificationItem,
 )
+from app.services.image_prompt import build_prompt, check_safety
 
 router = APIRouter(prefix="/api/v1", tags=["chat"])
 
@@ -96,8 +97,11 @@ async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
             reply = reply + note
 
     image_b64: str | None = None
-    if payload.generate_image:
-        image_b64 = await app.state.image_client.generate(payload.message)
+    if payload.generate_image and check_safety(payload.message).ok:
+        # Seed the illustration with the strongest retrieved verse when present.
+        scripture_context = citations[0].ref if citations else None
+        params = build_prompt(payload.message, scripture_context=scripture_context)
+        image_b64 = await app.state.image_client.generate(params)
 
     return ChatResponse(
         reply=reply,
