@@ -42,5 +42,16 @@ class Settings(BaseSettings):
     # MCP server
     mcp_server_url: str = "http://mcp-server:8001/mcp"
 
+    # RAG / Bible grounding
+    rag_enabled: bool = True
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    # Instruction prefix applied to queries (bge-style retrieval models expect
+    # one for the query side only). Set blank for models that don't need it.
+    embedding_query_prefix: str = (
+        "Represent this sentence for searching relevant passages: "
+    )
+    qdrant_collection: str = "bible_verses"
+    rag_top_k: int = 5
+
 
 settings = Settings()

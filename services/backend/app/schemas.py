@@ -1,8 +1,16 @@
 """Request/response models for the gateway API."""
 
+from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, Field
+
+
+class Denomination(str, Enum):
+    NEUTRAL = "neutral"
+    CATHOLIC = "catholic"
+    PROTESTANT = "protestant"
+    ORTHODOX = "orthodox"
 
 
 class ChatMessage(BaseModel):
@@ -15,9 +23,23 @@ class ChatRequest(BaseModel):
     history: list[ChatMessage] = Field(
         default_factory=list, description="Prior turns, oldest first"
     )
+    denomination: Denomination = Field(
+        default=Denomination.NEUTRAL,
+        description="Filters which canon books are eligible for grounding",
+    )
     generate_image: bool = Field(
         default=False, description="Also generate a themed image for this turn"
     )
+
+
+class Citation(BaseModel):
+    ref: str
+    translation: str
+    book: str
+    chapter: int
+    verse: int
+    text: str
+    score: float
 
 
 class BackendInfo(BaseModel):
@@ -27,8 +49,21 @@ class BackendInfo(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
+    citations: list[Citation] = Field(default_factory=list)
     image_base64: str | None = None
     backend: BackendInfo
+
+
+class SearchRequest(BaseModel):
+    query: str = Field(..., min_length=1)
+    denomination: Denomination = Denomination.NEUTRAL
+    top_k: int | None = Field(default=None, ge=1, le=50)
+
+
+class SearchResponse(BaseModel):
+    query: str
+    denomination: Denomination
+    citations: list[Citation]
 
 
 class DependencyStatus(BaseModel):

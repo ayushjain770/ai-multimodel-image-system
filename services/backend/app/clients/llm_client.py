@@ -14,19 +14,33 @@ import httpx
 
 from app.core.config import LLMBackend, settings
 from app.core.logging import get_logger
-from app.schemas import ChatMessage
+from app.schemas import ChatMessage, Citation
 
 logger = get_logger(__name__)
 
 _SYSTEM_PROMPT = (
     "You are a Christianity-focused assistant. Be pastoral, humble, and "
-    "non-dogmatic. (Phase 1 skeleton: grounding and safety come later.)"
+    "non-dogmatic. Ground your answers in the Scripture passages provided in "
+    "the context and cite them by reference (e.g. John 3:16). If the context "
+    "does not contain a relevant passage, say so rather than inventing one."
 )
+
+
+def _format_context(citations: list[Citation]) -> str:
+    if not citations:
+        return ""
+    lines = [f"- {c.ref} ({c.translation}): {c.text}" for c in citations]
+    return "Scripture context:\n" + "\n".join(lines)
 
 
 class LLMClient(ABC):
     @abstractmethod
-    async def chat(self, message: str, history: list[ChatMessage]) -> str: ...
+    async def chat(
+        self,
+        message: str,
+        history: list[ChatMessage],
+        citations: list[Citation] | None = None,
+    ) -> str: ...
 
     @abstractmethod
     async def health(self) -> tuple[bool, str]:
@@ -39,12 +53,22 @@ class LLMClient(ABC):
 class MockLLMClient(LLMClient):
     """Deterministic stand-in so the stack runs without a GPU."""
 
-    async def chat(self, message: str, history: list[ChatMessage]) -> str:
+    async def chat(
+        self,
+        message: str,
+        history: list[ChatMessage],
+        citations: list[Citation] | None = None,
+    ) -> str:
         turn = len([m for m in history if m.role == "user"]) + 1
+        cites = citations or []
+        if cites:
+            refs = "; ".join(f"{c.ref} ({c.translation})" for c in cites)
+            grounding = f" Grounded in: {refs}."
+        else:
+            grounding = " No matching scripture was retrieved."
         return (
-            f"[mock-llm] Peace be with you. You said: \"{message}\". "
-            f"This is turn {turn}. Real scripture-grounded answers arrive in "
-            "later phases."
+            f"[mock-llm] Peace be with you. You asked: \"{message}\" "
+            f"(turn {turn}).{grounding}"
         )
 
     async def health(self) -> tuple[bool, str]:
@@ -59,10 +83,17 @@ class VLLMClient(LLMClient):
         self._model = settings.vllm_model
         self._client = httpx.AsyncClient(timeout=settings.llm_timeout)
 
-    async def chat(self, message: str, history: list[ChatMessage]) -> str:
+    async def chat(
+        self,
+        message: str,
+        history: list[ChatMessage],
+        citations: list[Citation] | None = None,
+    ) -> str:
         messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
         messages += [{"role": m.role, "content": m.content} for m in history]
-        messages.append({"role": "user", "content": message})
+        context = _format_context(citations or [])
+        user_content = f"{context}\n\nQuestion: {message}" if context else message
+        messages.append({"role": "user", "content": user_content})
 
         resp = await self._client.post(
             f"{self._base_url}/chat/completions",

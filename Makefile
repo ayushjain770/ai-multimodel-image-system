@@ -1,12 +1,7 @@
-# Phase 1 - Foundation & Infrastructure
-# Convenience wrappers around docker compose for dev (Mac, mocks) and prod (EC2, GPU).
+# Phase 1/2 - thin wrappers around the orchestrator (infrastructure/script/script.sh).
+# The script is the single source of truth for build/up/health/ingest sequencing.
 
-COMPOSE_BASE := docker-compose.yml
-COMPOSE_DEV  := docker-compose.dev.yml
-COMPOSE_PROD := docker-compose.prod.yml
-
-DEV  := docker compose -f $(COMPOSE_BASE) -f $(COMPOSE_DEV)
-PROD := docker compose -f $(COMPOSE_BASE) -f $(COMPOSE_PROD) --profile gpu
+SCRIPT := infrastructure/script/script.sh
 
 .DEFAULT_GOAL := help
 
@@ -15,43 +10,42 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-# ----------------------------------------------------------------------------
-# Dev (this Mac, no GPU, mock LLM + mock image)
-# ----------------------------------------------------------------------------
 .PHONY: dev
-dev: env ## Build + start the dev stack (UI, backend, mcp, qdrant) with hot reload
-	$(DEV) up --build
+dev: ## Full dev startup (Mac, mocks, no GPU): preflight->build->up->health->ingest->smoke
+	$(SCRIPT) up dev
 
-.PHONY: dev-down
-dev-down: ## Stop and remove the dev stack
-	$(DEV) down
-
-# ----------------------------------------------------------------------------
-# Prod (EC2, GPU: real vLLM + ComfyUI)
-# ----------------------------------------------------------------------------
 .PHONY: prod
-prod: env ## Build + start the full GPU stack in the background
-	$(PROD) up --build -d
+prod: ## Full prod startup (EC2, GPU): also downloads models before starting
+	$(SCRIPT) up prod
 
-.PHONY: prod-down
-prod-down: ## Stop and remove the prod stack
-	$(PROD) down
+.PHONY: doctor
+doctor: ## Run preflight checks only
+	$(SCRIPT) doctor
 
-# ----------------------------------------------------------------------------
-# Shared helpers
-# ----------------------------------------------------------------------------
-.PHONY: down
-down: ## Stop everything regardless of profile
-	docker compose -f $(COMPOSE_BASE) -f $(COMPOSE_DEV) -f $(COMPOSE_PROD) --profile gpu down
+.PHONY: build
+build: ## Build images only (with error detection)
+	$(SCRIPT) build
+
+.PHONY: models
+models: ## Download Juggernaut (+ pre-pull LLM in prod)
+	$(SCRIPT) models
+
+.PHONY: ingest
+ingest: ## Run Bible corpus ingestion (idempotent)
+	$(SCRIPT) ingest
+
+.PHONY: health
+health: ## Wait for health + probe endpoints
+	$(SCRIPT) health
 
 .PHONY: logs
-logs: ## Tail logs (dev). Override SVC=backend to scope: make logs SVC=backend
-	$(DEV) logs -f $(SVC)
+logs: ## Tail logs. Scope with SVC=backend: make logs SVC=backend
+	$(SCRIPT) logs $(SVC)
 
-.PHONY: ps
-ps: ## List running services (dev)
-	$(DEV) ps
+.PHONY: down
+down: ## Stop and remove the stack (dev)
+	$(SCRIPT) down dev
 
-.PHONY: env
-env: ## Create .env from .env.example if missing
-	@test -f .env || (cp .env.example .env && echo "Created .env from .env.example")
+.PHONY: down-prod
+down-prod: ## Stop and remove the stack (prod)
+	$(SCRIPT) down prod

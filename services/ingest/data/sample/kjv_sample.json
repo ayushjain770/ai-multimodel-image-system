@@ -1,0 +1,16 @@
+[
+  { "book": "Genesis", "chapter": 1, "verse": 1, "text": "In the beginning God created the heaven and the earth." },
+  { "book": "Psalms", "chapter": 23, "verse": 1, "text": "The LORD is my shepherd; I shall not want." },
+  { "book": "Psalms", "chapter": 46, "verse": 1, "text": "God is our refuge and strength, a very present help in trouble." },
+  { "book": "Proverbs", "chapter": 3, "verse": 5, "text": "Trust in the LORD with all thine heart; and lean not unto thine own understanding." },
+  { "book": "Isaiah", "chapter": 41, "verse": 10, "text": "Fear thou not; for I am with thee: be not dismayed; for I am thy God: I will strengthen thee; yea, I will help thee; yea, I will uphold thee with the right hand of my righteousness." },
+  { "book": "Matthew", "chapter": 22, "verse": 37, "text": "Jesus said unto him, Thou shalt love the Lord thy God with all thy heart, and with all thy soul, and with all thy mind." },
+  { "book": "Matthew", "chapter": 22, "verse": 39, "text": "And the second is like unto it, Thou shalt love thy neighbour as thyself." },
+  { "book": "John", "chapter": 3, "verse": 16, "text": "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life." },
+  { "book": "Romans", "chapter": 8, "verse": 28, "text": "And we know that all things work together for good to them that love God, to them who are the called according to his purpose." },
+  { "book": "1 Corinthians", "chapter": 13, "verse": 4, "text": "Charity suffereth long, and is kind; charity envieth not; charity vaunteth not itself, is not puffed up." },
+  { "book": "1 Corinthians", "chapter": 13, "verse": 13, "text": "And now abideth faith, hope, charity, these three; but the greatest of these is charity." },
+  { "book": "1 John", "chapter": 4, "verse": 8, "text": "He that loveth not knoweth not God; for God is love." },
+  { "book": "1 John", "chapter": 4, "verse": 16, "text": "And we have known and believed the love that God hath to us. God is love; and he that dwelleth in love dwelleth in God, and God in him." },
+  { "book": "Philippians", "chapter": 4, "verse": 13, "text": "I can do all things through Christ which strengtheneth me." }
+]

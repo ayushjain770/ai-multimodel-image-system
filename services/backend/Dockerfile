@@ -9,8 +9,14 @@ WORKDIR /app
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
+# CPU-only torch (the backend never uses the GPU; that is vLLM/ComfyUI).
+RUN pip install torch --index-url https://download.pytorch.org/whl/cpu
 COPY requirements.txt .
 RUN pip install -r requirements.txt
+
+# Pre-cache the embedding model so the backend starts offline.
+ARG EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('${EMBEDDING_MODEL}')"
 
 # ---- runtime ----
 FROM python:3.12-slim AS runtime
@@ -21,6 +27,7 @@ ENV PATH="/opt/venv/bin:$PATH" \
 WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /root/.cache/huggingface /root/.cache/huggingface
 COPY . .
 
 EXPOSE 8080

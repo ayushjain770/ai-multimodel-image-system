@@ -1,0 +1,14 @@
+{
+  "translations": [
+    {
+      "name": "KJV",
+      "file": "kjv_sample.json",
+      "canon_tags": ["protestant", "catholic", "orthodox"]
+    },
+    {
+      "name": "DRA",
+      "file": "deutero_sample.json",
+      "canon_tags": ["catholic", "orthodox"]
+    }
+  ]
+}

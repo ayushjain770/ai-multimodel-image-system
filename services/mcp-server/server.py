@@ -1,16 +1,21 @@
-"""FastMCP server (Phase 1 skeleton).
+"""FastMCP server.
 
-Exposes a single `ping` tool over the streamable-http transport on :8001.
-Scripture-search, verse-verify, and image-generation tools land in later
-phases; this just proves the MCP surface is wired and reachable.
+Tools:
+  - ping            : health/liveness.
+  - scripture_search: grounded Bible verse retrieval, delegated to the backend
+                      gateway's /api/v1/search (URL from env, no hardcoding).
 """
 
 import os
 from datetime import datetime, timezone
 
+import httpx
 from fastmcp import FastMCP
 
 mcp = FastMCP("christ-ai-tools")
+
+BACKEND_URL = os.environ.get("BACKEND_URL", "http://backend:8080").rstrip("/")
+HTTP_TIMEOUT = float(os.environ.get("MCP_HTTP_TIMEOUT", "30"))
 
 
 @mcp.tool
@@ -19,9 +24,29 @@ def ping() -> dict:
     return {
         "status": "ok",
         "server": "christ-ai-tools",
-        "phase": 1,
+        "phase": 2,
         "time": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@mcp.tool
+def scripture_search(
+    query: str, denomination: str = "neutral", top_k: int = 5
+) -> dict:
+    """Retrieve grounded Bible verses for a query.
+
+    Args:
+        query: Natural-language question or topic.
+        denomination: neutral | catholic | protestant | orthodox (filters canon).
+        top_k: Maximum number of verses to return.
+    """
+    resp = httpx.post(
+        f"{BACKEND_URL}/api/v1/search",
+        json={"query": query, "denomination": denomination, "top_k": top_k},
+        timeout=HTTP_TIMEOUT,
+    )
+    resp.raise_for_status()
+    return resp.json()
 
 
 if __name__ == "__main__":

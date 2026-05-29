@@ -46,14 +46,16 @@ Mac can skip them entirely.
 
 ## Quick start
 
-```bash
-cp .env.example .env     # or: make env
-```
+The single orchestrator (`infrastructure/script/script.sh`, wrapped by the
+Makefile) handles everything: preflight, build with error detection, model
+download (prod), startup, health waiting, Bible ingestion, and a smoke test.
+It bootstraps `.env` from `.env.example` on first run.
 
 ### Dev (this Mac, no GPU)
 
-Runs UI + backend + MCP + Qdrant with hot reload. The backend uses a mock LLM
-and a placeholder image generator, so no GPU is required.
+Runs UI + backend + MCP + Qdrant with hot reload, a mock LLM, and a placeholder
+image generator. RAG grounding is real (CPU embeddings + Qdrant), so chat
+returns genuine verse citations without a GPU.
 
 ```bash
 make dev
@@ -63,24 +65,29 @@ Then:
 
 - UI: http://localhost:3000
 - Backend health: http://localhost:8080/health/readyz
-- Send a chat: returns a deterministic mock reply + a placeholder image.
+- Grounded search: `POST http://localhost:8080/api/v1/search`
+- Chat returns a reply plus real `citations[]` from the ingested corpus.
 
 ### Prod (EC2, GPU)
 
 Brings up the full stack including real Qwen2.5-VL (vLLM) and ComfyUI/Juggernaut.
 
 ```bash
-# 1. Put the image checkpoint in place (not committed):
-#    models/checkpoints/juggernautXL.safetensors
-# 2. Set HF_TOKEN in .env if the model repo is gated.
-# 3. Switch backends in .env: LLM_BACKEND=vllm, IMAGE_BACKEND=comfy
+# 1. Set HF_TOKEN in .env if the model repo is gated.
+# 2. Switch backends in .env: LLM_BACKEND=vllm, IMAGE_BACKEND=comfy
 make prod
-make logs            # watch first-boot model download
 ```
 
-The first prod boot downloads the Qwen2.5-VL weights into the `hf_cache` volume;
-expect this to take a while. The 3B VL model fits comfortably on a single
-mid-size GPU.
+`make prod` (i.e. `script.sh up prod`) additionally:
+
+1. Downloads the Juggernaut checkpoint into `models/checkpoints/` from
+   `JUGGERNAUT_HF_REPO`+`JUGGERNAUT_HF_FILE` (or `JUGGERNAUT_URL`), with optional
+   `JUGGERNAUT_SHA256` verification - no manual file drop needed.
+2. Pre-pulls the Qwen2.5-VL weights into the `hf_cache` volume when
+   `PREPULL_LLM=true`, so the first vLLM boot is fast.
+
+See [infrastructure/README.md](infrastructure/README.md) for all orchestrator
+commands (`doctor`, `build`, `models`, `ingest`, `health`, `logs`, `down`).
 
 ## EC2 notes
 
@@ -97,12 +104,14 @@ docker-compose.yml        base service definitions
 docker-compose.dev.yml    dev overrides (mocks, hot reload, no GPU)
 docker-compose.prod.yml   prod overrides (built images, GPU, restart policies)
 .env.example              documented configuration
-Makefile                  make dev | prod | down | logs | ps
+Makefile                  thin wrappers around the orchestrator
+infrastructure/           one-command orchestration (script.sh + lib/)
 services/
-  backend/                FastAPI gateway (:8080)
-  mcp-server/             FastMCP server (:8001)
+  backend/                FastAPI gateway (:8080) - chat, RAG search, health
+  mcp-server/             FastMCP server (:8001) - ping, scripture_search
   ui/                     Next.js UI (:3000)
   comfyui/                ComfyUI image (:8188)
+  ingest/                 one-shot Bible ingestion job (verses -> Qdrant)
 models/                   mounted checkpoints (gitignored)
 ```
 

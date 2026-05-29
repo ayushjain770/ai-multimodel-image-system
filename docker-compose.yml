@@ -12,6 +12,8 @@ services:
   backend:
     build:
       context: ./services/backend
+      args:
+        EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
     env_file: .env
     ports:
       - "${BACKEND_PORT:-8080}:8080"
@@ -79,6 +81,26 @@ services:
       - "${QDRANT_GRPC_PORT:-6334}:6334"
     volumes:
       - qdrant_data:/qdrant/storage
+    networks: [appnet]
+
+  # ---------------------------------------------------------------------------
+  # Bible ingestion - one-shot job (run via `docker compose run --rm ingest`)
+  # ---------------------------------------------------------------------------
+  ingest:
+    build:
+      context: ./services/ingest
+      args:
+        EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
+    profiles: ["ingest"]
+    environment:
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-bible_verses}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
+      BIBLE_SOURCES: ${BIBLE_SOURCES:-/app/data/sample/sources.json}
+      REINGEST: ${REINGEST:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      - qdrant
     networks: [appnet]
 
   # ---------------------------------------------------------------------------
