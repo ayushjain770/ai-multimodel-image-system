@@ -4,6 +4,8 @@ Tools:
   - ping            : health/liveness.
   - scripture_search: grounded Bible verse retrieval, delegated to the backend
                       gateway's /api/v1/search (URL from env, no hardcoding).
+  - verse_verify    : anti-hallucination check of scripture references in text,
+                      delegated to the backend gateway's /api/v1/verify.
 """
 
 import os
@@ -24,7 +26,7 @@ def ping() -> dict:
     return {
         "status": "ok",
         "server": "christ-ai-tools",
-        "phase": 2,
+        "phase": 3,
         "time": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -43,6 +45,27 @@ def scripture_search(
     resp = httpx.post(
         f"{BACKEND_URL}/api/v1/search",
         json={"query": query, "denomination": denomination, "top_k": top_k},
+        timeout=HTTP_TIMEOUT,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+@mcp.tool
+def verse_verify(text: str) -> dict:
+    """Verify scripture references in text against the canonical Bible store.
+
+    Flags fabricated or misquoted verses so model output can be trusted.
+
+    Args:
+        text: Any text that may contain scripture references (and quoted verses).
+
+    Returns a per-reference report with status valid | unknown_book |
+    nonexistent | misquote, plus the authentic canonical text when available.
+    """
+    resp = httpx.post(
+        f"{BACKEND_URL}/api/v1/verify",
+        json={"text": text},
         timeout=HTTP_TIMEOUT,
     )
     resp.raise_for_status()

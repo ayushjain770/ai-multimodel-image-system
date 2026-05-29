@@ -53,5 +53,12 @@ class Settings(BaseSettings):
     qdrant_collection: str = "bible_verses"
     rag_top_k: int = 5
 
+    # Anti-hallucination / verse verification
+    verify_enabled: bool = True
+    # Translation whose canonical text references are validated against.
+    verify_translation: str = "KJV"
+    # difflib ratio below which a quoted verse is treated as a misquote.
+    verify_fuzzy_threshold: float = 0.6
+
 
 settings = Settings()

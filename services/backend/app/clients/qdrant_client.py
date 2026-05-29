@@ -68,6 +68,33 @@ class VectorDBClient:
 
         return await asyncio.to_thread(_run)
 
+    async def get_verse(
+        self, translation: str, book: str, chapter: int, verse: int
+    ) -> dict | None:
+        """Exact canonical lookup of a single verse via payload filter."""
+        query_filter = models.Filter(
+            must=[
+                models.FieldCondition(key="translation", match=models.MatchValue(value=translation)),
+                models.FieldCondition(key="book", match=models.MatchValue(value=book)),
+                models.FieldCondition(key="chapter", match=models.MatchValue(value=chapter)),
+                models.FieldCondition(key="verse", match=models.MatchValue(value=verse)),
+            ]
+        )
+
+        def _run() -> dict | None:
+            points, _ = self._client.scroll(
+                collection_name=self._collection,
+                scroll_filter=query_filter,
+                limit=1,
+                with_payload=True,
+                with_vectors=False,
+            )
+            if not points:
+                return None
+            return dict(points[0].payload or {})
+
+        return await asyncio.to_thread(_run)
+
     async def aclose(self) -> None:
         await self._http.aclose()
         self._client.close()

@@ -47,9 +47,28 @@ class BackendInfo(BaseModel):
     image: str
 
 
+VerificationStatus = Literal["valid", "unknown_book", "nonexistent", "misquote"]
+
+
+class VerificationItem(BaseModel):
+    ref: str
+    status: VerificationStatus
+    book: str | None = None
+    chapter: int | None = None
+    verse: int | None = None
+    canonical_text: str | None = None
+    quoted_text: str | None = None
+    similarity: float | None = None
+    message: str
+
+
 class ChatResponse(BaseModel):
     reply: str
     citations: list[Citation] = Field(default_factory=list)
+    verification: list[VerificationItem] = Field(default_factory=list)
+    refused: bool = Field(
+        default=False, description="True when the assistant refused to alter scripture"
+    )
     image_base64: str | None = None
     backend: BackendInfo
 
@@ -64,6 +83,16 @@ class SearchResponse(BaseModel):
     query: str
     denomination: Denomination
     citations: list[Citation]
+
+
+class VerifyRequest(BaseModel):
+    text: str = Field(..., min_length=1, description="Text whose scripture refs are checked")
+
+
+class VerifyResponse(BaseModel):
+    text: str
+    translation: str
+    verification: list[VerificationItem]
 
 
 class DependencyStatus(BaseModel):

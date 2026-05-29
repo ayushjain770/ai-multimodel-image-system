@@ -96,9 +96,18 @@ services:
       QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-bible_verses}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
-      BIBLE_SOURCES: ${BIBLE_SOURCES:-/app/data/sample/sources.json}
+      BIBLE_SOURCES: ${BIBLE_SOURCES:-/app/data/sources.json}
+      INGEST_TRANSLATIONS: ${INGEST_TRANSLATIONS:-KJV}
       REINGEST: ${REINGEST:-false}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Kaggle credentials (kagglehub). Blank -> falls back to the bundled sample.
+      KAGGLE_DATASET: ${KAGGLE_DATASET:-oswinrh/bible}
+      KAGGLE_USERNAME: ${KAGGLE_USERNAME:-}
+      KAGGLE_KEY: ${KAGGLE_KEY:-}
+      KAGGLE_API_TOKEN: ${KAGGLE_API_TOKEN:-}
+      KAGGLEHUB_CACHE: /cache/kagglehub
+    volumes:
+      - kagglehub_cache:/cache/kagglehub
     depends_on:
       - qdrant
     networks: [appnet]
@@ -161,3 +170,4 @@ networks:
 volumes:
   qdrant_data:
   hf_cache:
+  kagglehub_cache:

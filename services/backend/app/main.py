@@ -11,8 +11,9 @@ from app.clients.llm_client import build_llm_client
 from app.clients.qdrant_client import build_vector_client
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
-from app.routers import chat, health, search
+from app.routers import chat, health, search, verify
 from app.services.retriever import Retriever
+from app.services.verifier import build_verifier
 
 logger = get_logger(__name__)
 
@@ -37,6 +38,11 @@ async def lifespan(app: FastAPI):
     else:
         app.state.retriever = None
         logger.info("RAG disabled (RAG_ENABLED=false)")
+    if settings.verify_enabled:
+        app.state.verifier = build_verifier(app.state.vector_client)
+    else:
+        app.state.verifier = None
+        logger.info("Verification disabled (VERIFY_ENABLED=false)")
     try:
         yield
     finally:
@@ -58,6 +64,7 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(chat.router)
 app.include_router(search.router)
+app.include_router(verify.router)
 
 
 @app.get("/", tags=["meta"])
