@@ -134,6 +134,17 @@ models/                   mounted checkpoints (gitignored)
 
 `ping`, `scripture_search`, `verse_verify`, `generate_image`, `prompt_composer`, `moderate` - all delegate to the backend (URL from env).
 
+## History sidebar (Phase 10)
+
+The UI ([services/ui/app/page.tsx](services/ui/app/page.tsx)) has a sidebar that
+lists stored conversations from `GET /api/v1/sessions`. Clicking one loads its full
+history (including images) via `GET /api/v1/session/{id}/history`; "New chat" starts
+a fresh session; the delete control removes a conversation via
+`DELETE /api/v1/session/{id}`. The active session id is persisted in `localStorage`,
+so a reload returns to the same conversation, and the list refreshes after each
+reply. When `CHAT_STORE_ENABLED=false`, the sidebar simply stays empty (chat still
+works in-memory).
+
 ## Durable store + image persistence (Phase 9)
 
 Chat history is persisted in Postgres via

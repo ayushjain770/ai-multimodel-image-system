@@ -19,8 +19,99 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
 
+.layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  height: 100vh;
+}
+
+.sidebar {
+  border-right: 1px solid #2a2e37;
+  background: #14161c;
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.new-chat {
+  width: 100%;
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid #2a2e37;
+}
+
+.session-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.session-list .empty {
+  padding: 8px 4px;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.session-item:hover {
+  background: var(--panel);
+}
+
+.session-item.active {
+  background: var(--panel);
+  outline: 1px solid var(--accent);
+}
+
+.session-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.session-preview {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+
+.session-meta {
+  font-size: 11px;
+}
+
+.session-delete {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 4px;
+  opacity: 0;
+}
+
+.session-item:hover .session-delete,
+.session-item.active .session-delete {
+  opacity: 1;
+}
+
+.session-delete:hover {
+  color: var(--text);
+}
+
 .shell {
   max-width: 720px;
+  width: 100%;
   margin: 0 auto;
   padding: 24px 16px;
   display: flex;

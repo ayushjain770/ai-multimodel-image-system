@@ -50,12 +50,50 @@ export interface StreamHandlers {
   onError?: (message: string) => void;
 }
 
+export interface SessionSummary {
+  session_id: string;
+  denomination: string;
+  turns: number;
+  preview: string;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface HistoryTurn {
+  role: Role;
+  content: string;
+  intent_kind: string | null;
+  image_url: string | null;
+  created_at: string | null;
+}
+
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
 /** Resolve a relative media URL (e.g. /media/x.png) against the API base. */
 export function mediaUrl(url: string | null | undefined): string | null {
   if (!url) return null;
   return url.startsWith("http") ? url : `${API_URL}${url}`;
+}
+
+export async function listSessions(): Promise<SessionSummary[]> {
+  const res = await fetch(`${API_URL}/api/v1/sessions`);
+  if (!res.ok) throw new Error(`Gateway returned ${res.status}`);
+  const data = (await res.json()) as { sessions: SessionSummary[] };
+  return data.sessions;
+}
+
+export async function getHistory(sessionId: string): Promise<HistoryTurn[]> {
+  const res = await fetch(`${API_URL}/api/v1/session/${sessionId}/history`);
+  if (!res.ok) throw new Error(`Gateway returned ${res.status}`);
+  const data = (await res.json()) as { turns: HistoryTurn[] };
+  return data.turns;
+}
+
+export async function deleteSession(sessionId: string): Promise<void> {
+  const res = await fetch(`${API_URL}/api/v1/session/${sessionId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(`Gateway returned ${res.status}`);
 }
 
 export async function streamChat(
