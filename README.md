@@ -107,8 +107,8 @@ docker-compose.prod.yml   prod overrides (built images, GPU, restart policies)
 Makefile                  thin wrappers around the orchestrator
 infrastructure/           one-command orchestration (script.sh + lib/)
 services/
-  backend/                FastAPI gateway (:8080) - chat, RAG search, verify, image, session/memory, health
-  mcp-server/             FastMCP server (:8001) - ping, scripture_search, verse_verify, generate_image
+  backend/                FastAPI gateway (:8080) - chat, RAG search, verify, image, moderate, session/memory, health
+  mcp-server/             FastMCP server (:8001) - ping, scripture_search, verse_verify, generate_image, prompt_composer, moderate
   ui/                     Next.js UI (:3000)
   comfyui/                ComfyUI image (:8188)
   ingest/                 one-shot Bible ingestion job (verses -> Qdrant)
@@ -121,13 +121,53 @@ models/                   mounted checkpoints (gitignored)
 - `POST /api/v1/search` - scripture retrieval (RAG), denomination-filtered.
 - `POST /api/v1/verify` - anti-hallucination check of references in text (valid | unknown_book | nonexistent | misquote).
 - `POST /api/v1/image` - Christian-themed image generation (safety guard + style templating; refuses disallowed prompts).
+- `POST /api/v1/compose_image_prompt` - LLM-assisted structured image prompt (no render).
+- `POST /api/v1/moderate` - screen text with the safety rules (`stage`: input | output).
 - `GET /api/v1/session/{id}` - inspect conversation memory (summary + recent turns).
 - `DELETE /api/v1/session/{id}` - clear a conversation's memory.
 - `GET /health/readyz` - readiness (LLM, image, Qdrant).
 
 ## MCP tools (:8001)
 
-`ping`, `scripture_search`, `verse_verify`, `generate_image` - all delegate to the backend (URL from env).
+`ping`, `scripture_search`, `verse_verify`, `generate_image`, `prompt_composer`, `moderate` - all delegate to the backend (URL from env).
+
+## Intent orchestrator (Phase 7)
+
+Every chat turn is routed by [services/backend/app/services/orchestrator.py](services/backend/app/services/orchestrator.py)
+so work happens only when needed:
+
+- **normal** -> answer directly, no RAG (cheap small talk).
+- **scripture** (mentions Jesus/Bible/faith/etc.) -> RAG retrieval + grounded answer + verse verification.
+- **image** (mentions image/paint/draw/etc., or `generate_image=true`) -> the
+  LLM **prompt-composer** ([image_prompt.py](services/backend/app/services/image_prompt.py))
+  turns the request into a tasteful Christian-art scene, which is safety-checked
+  and rendered (mock in dev, Juggernaut/ComfyUI in prod).
+
+Classification is rule-first (deterministic, GPU-free); with
+`ORCHESTRATOR_LLM_INTENT=true` (and `LLM_BACKEND=vllm`) the LLM breaks ties on
+ambiguous messages. The chosen route is returned as `intent` on the chat response.
+The composer is also exposed standalone via `POST /api/v1/compose_image_prompt`
+and the `prompt_composer` MCP tool, so an agent can chain compose -> render. The
+LangChain tool-calling harness in [tests/langchain_tools/](tests/langchain_tools/)
+validates this routing and the MCP tools.
+
+## Safety & moderation (Phase 6)
+
+A layered guard in [services/backend/app/services/moderation.py](services/backend/app/services/moderation.py)
+runs on every chat turn:
+
+- **Input moderation** (before the LLM) blocks hateful, sexual, violent, illegal,
+  self-harm, and jailbreak/prompt-injection requests with an on-brand refusal
+  (`MODERATION_REFUSAL`); self-harm gets a compassionate, help-directing message.
+- **Output moderation** (after the LLM) scans the reply and replaces it if unsafe
+  content slipped through (`moderated: true` in the response).
+- **Layered**: a deterministic rule layer is always on (works in dev mock). With
+  `MODERATION_LLM_JUDGE=true` (and `LLM_BACKEND=vllm`), Qwen2.5-VL gives a second
+  opinion on borderline input via `LLMClient.moderate`.
+- The image guard ([image_prompt.py](services/backend/app/services/image_prompt.py))
+  reuses the same patterns, so unsafe-content rules live in one place.
+
+Screen arbitrary text directly via `POST /api/v1/moderate` or the `moderate` MCP tool.
 
 ## Image generation (Phase 4)
 

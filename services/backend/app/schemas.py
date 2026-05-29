@@ -52,6 +52,19 @@ class BackendInfo(BaseModel):
     image: str
 
 
+class ModerationInfo(BaseModel):
+    stage: Literal["input", "output"]
+    category: str | None = None
+    reason: str | None = None
+
+
+class IntentInfo(BaseModel):
+    kind: Literal["normal", "scripture", "image"]
+    needs_rag: bool
+    tool: str | None = None
+    source: str
+
+
 VerificationStatus = Literal["valid", "unknown_book", "nonexistent", "misquote"]
 
 
@@ -72,8 +85,14 @@ class ChatResponse(BaseModel):
     citations: list[Citation] = Field(default_factory=list)
     verification: list[VerificationItem] = Field(default_factory=list)
     refused: bool = Field(
-        default=False, description="True when the assistant refused to alter scripture"
+        default=False,
+        description="True when the assistant refused (scripture alteration or moderation)",
     )
+    moderated: bool = Field(
+        default=False, description="True when moderation blocked or replaced content"
+    )
+    moderation: ModerationInfo | None = None
+    intent: IntentInfo | None = None
     image_base64: str | None = None
     session_id: str | None = Field(
         default=None, description="Echoes the request session_id when memory is used"
@@ -108,6 +127,20 @@ class ImageResponse(BaseModel):
     backend: str
 
 
+class ComposeRequest(BaseModel):
+    request: str = Field(..., min_length=1, description="Raw image request to compose")
+    denomination: Denomination = Denomination.NEUTRAL
+    negative: str | None = Field(default=None, description="Optional negative-prompt override")
+
+
+class ComposeResponse(BaseModel):
+    positive: str | None = None
+    negative: str | None = None
+    refused: bool = False
+    reason: str | None = None
+    backend: str
+
+
 class VerifyRequest(BaseModel):
     text: str = Field(..., min_length=1, description="Text whose scripture refs are checked")
 
@@ -116,6 +149,20 @@ class VerifyResponse(BaseModel):
     text: str
     translation: str
     verification: list[VerificationItem]
+
+
+class ModerateRequest(BaseModel):
+    text: str = Field(..., min_length=1, description="Text to screen")
+    stage: Literal["input", "output"] = Field(
+        default="input", description="Apply input-side or output-side rules"
+    )
+
+
+class ModerateResponse(BaseModel):
+    allowed: bool
+    stage: Literal["input", "output"]
+    category: str | None = None
+    reason: str | None = None
 
 
 class SessionStateResponse(BaseModel):

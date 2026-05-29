@@ -8,28 +8,16 @@ Everything is env-driven (see `Settings.image_*`); nothing is hardcoded.
 from __future__ import annotations
 
 import random
-import re
 from dataclasses import dataclass
 
+from app.clients.llm_client import IMAGE_COMPOSER_MARKER, LLMClient
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.services.moderation import IMAGE_DISRESPECT, IMAGE_UNSAFE, matches_any
 
 logger = get_logger(__name__)
 
 _MAX_SEED = 2**32 - 1
-
-# Disallowed image intents. Kept lightweight and explainable; a heavier
-# moderation model is a later phase.
-_UNSAFE_RE = re.compile(
-    r"\b(nude|naked|nsfw|porn|sexual|erotic|gore|gory|graphic\s+violence|"
-    r"behead|mutilat|slur|nazi|kkk|terror|child\s+abuse|csam)\b",
-    re.IGNORECASE,
-)
-# Requests to mock, insult, or blaspheme are refused (assistant stays reverent).
-_DISRESPECT_RE = re.compile(
-    r"\b(mock(ing)?|insult|ridicul|blasphem|desecrat|satan(ic)?|demonic)\b",
-    re.IGNORECASE,
-)
 
 
 @dataclass(frozen=True)
@@ -53,12 +41,15 @@ class SafetyResult:
 
 
 def check_safety(text: str) -> SafetyResult:
-    """Refuse disallowed image requests; allow everything else."""
+    """Refuse disallowed image requests; allow everything else.
+
+    Delegates to the shared moderation patterns so the rules live in one place.
+    """
     if not settings.image_safety_enabled:
         return SafetyResult(ok=True)
-    if _UNSAFE_RE.search(text):
+    if matches_any(text, IMAGE_UNSAFE):
         return SafetyResult(ok=False, reason="Request asks for explicit, violent, or hateful imagery.")
-    if _DISRESPECT_RE.search(text):
+    if matches_any(text, IMAGE_DISRESPECT):
         return SafetyResult(ok=False, reason="Request asks for mocking or blasphemous religious imagery.")
     return SafetyResult(ok=True)
 
@@ -90,3 +81,26 @@ def build_prompt(
     )
     logger.info("[image-prompt] seed=%d positive=%s", params.seed, params.positive[:100])
     return params
+
+
+async def compose_image_prompt(
+    llm_client: LLMClient,
+    request: str,
+    denomination: str | None = None,
+    negative_override: str | None = None,
+) -> ImageParams:
+    """LLM-assisted composer: turn a raw request into a structured SDXL prompt.
+
+    The LLM rewrites the request into a tasteful Christian-art scene, which is
+    then wrapped in the configured style template. The mock LLM returns a clean
+    deterministic scene (see IMAGE_COMPOSER_MARKER), so dev works without a GPU.
+    """
+    hint = request.strip()
+    if denomination and denomination != "neutral":
+        hint = f"{hint} (in the {denomination} tradition)"
+    system = f"{IMAGE_COMPOSER_MARKER}\n{settings.image_composer_instruction}"
+    scene = (await llm_client.chat(hint, [], None, system_prompt=system)).strip()
+    if not scene:
+        scene = hint
+    logger.info("[image-composer] request=%r -> scene=%r", request[:60], scene[:80])
+    return build_prompt(scene, negative_override=negative_override)

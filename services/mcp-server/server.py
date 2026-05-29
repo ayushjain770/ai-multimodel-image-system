@@ -8,6 +8,10 @@ Tools:
                       delegated to the backend gateway's /api/v1/verify.
   - generate_image  : Christian-themed image generation, delegated to the
                       backend gateway's /api/v1/image.
+  - moderate        : safety/moderation screening of text, delegated to the
+                      backend gateway's /api/v1/moderate.
+  - prompt_composer : LLM-assisted Christian image prompt, delegated to the
+                      backend gateway's /api/v1/compose_image_prompt.
 """
 
 import os
@@ -90,6 +94,45 @@ def generate_image(prompt: str, denomination: str = "neutral") -> dict:
     resp = httpx.post(
         f"{BACKEND_URL}/api/v1/image",
         json={"prompt": prompt, "denomination": denomination},
+        timeout=HTTP_TIMEOUT,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+@mcp.tool
+def prompt_composer(request: str, denomination: str = "neutral") -> dict:
+    """Compose a structured, reverent Christian image prompt from a raw request.
+
+    Returns the positive/negative SDXL prompt without rendering, so it can be
+    chained into generate_image. Refuses disallowed requests.
+
+    Args:
+        request: The raw image idea (e.g. "the empty tomb at sunrise").
+        denomination: neutral | catholic | protestant | orthodox.
+    """
+    resp = httpx.post(
+        f"{BACKEND_URL}/api/v1/compose_image_prompt",
+        json={"request": request, "denomination": denomination},
+        timeout=HTTP_TIMEOUT,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+@mcp.tool
+def moderate(text: str, stage: str = "input") -> dict:
+    """Screen text with the assistant's safety/moderation rules.
+
+    Args:
+        text: The content to screen.
+        stage: input (jailbreak/self-harm included) or output (narrower rules).
+
+    Returns whether the text is allowed plus the matched category and reason.
+    """
+    resp = httpx.post(
+        f"{BACKEND_URL}/api/v1/moderate",
+        json={"text": text, "stage": stage},
         timeout=HTTP_TIMEOUT,
     )
     resp.raise_for_status()

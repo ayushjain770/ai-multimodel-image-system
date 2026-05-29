@@ -84,6 +84,30 @@ class Settings(BaseSettings):
     # difflib ratio below which a quoted verse is treated as a misquote.
     verify_fuzzy_threshold: float = 0.6
 
+    # Orchestrator (intent routing)
+    orchestrator_enabled: bool = True
+    # Use the LLM to classify only when the rules are ambiguous (prod opt-in).
+    orchestrator_llm_intent: bool = False
+    # System prompt for the image prompt-composer (turns a request into a scene).
+    image_composer_instruction: str = (
+        "You are an art director for reverent Christian fine art. Rewrite the "
+        "user's request into a single vivid, tasteful scene description suitable "
+        "for an image model. Keep it concrete and dignified, avoid text/words in "
+        "the image, and never depict anything explicit, violent, or mocking. "
+        "Reply with only the scene description, one sentence."
+    )
+
+    # Safety / moderation
+    moderation_enabled: bool = True
+    # Optional Qwen-as-judge second opinion on borderline input (prod opt-in).
+    moderation_llm_judge: bool = False
+    # On-brand refusal returned when a request is blocked.
+    moderation_refusal: str = (
+        "I'm sorry, but I can't help with that. I'm here to support you with "
+        "Scripture, faith, and Christian life in a respectful way. If there's "
+        "something along those lines I can help with, I'd be glad to."
+    )
+
     # Conversation memory (server-side, keyed by session_id)
     memory_enabled: bool = True
     # Recent turns kept verbatim in the prompt (one turn = user + assistant).
