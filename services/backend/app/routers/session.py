@@ -6,9 +6,37 @@ clear it. Returns 404 when memory is disabled or the session is unknown.
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app.schemas import SessionStateResponse
+from app.schemas import (
+    HistoryResponse,
+    HistoryTurn,
+    SessionListResponse,
+    SessionStateResponse,
+    SessionSummary,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["session"])
+
+
+@router.get("/sessions", response_model=SessionListResponse)
+async def list_sessions(request: Request) -> SessionListResponse:
+    store = getattr(request.app.state, "chat_store", None)
+    if store is None:
+        raise HTTPException(status_code=404, detail="durable chat store is disabled")
+    rows = await store.list_sessions()
+    return SessionListResponse(sessions=[SessionSummary(**r) for r in rows])
+
+
+@router.get("/session/{session_id}/history", response_model=HistoryResponse)
+async def get_history(request: Request, session_id: str) -> HistoryResponse:
+    store = getattr(request.app.state, "chat_store", None)
+    if store is None:
+        raise HTTPException(status_code=404, detail="durable chat store is disabled")
+    history = await store.get_history(session_id)
+    if history is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return HistoryResponse(
+        session_id=session_id, turns=[HistoryTurn(**t) for t in history]
+    )
 
 
 @router.get("/session/{session_id}", response_model=SessionStateResponse)

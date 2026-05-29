@@ -13,12 +13,17 @@ services:
     depends_on:
       qdrant:
         condition: service_started
+      postgres:
+        condition: service_healthy
       mcp-server:
         condition: service_healthy
       vllm:
         condition: service_healthy
       comfyui:
         condition: service_healthy
+
+  postgres:
+    restart: unless-stopped
 
   mcp-server:
     image: christ-ai/mcp-server:latest

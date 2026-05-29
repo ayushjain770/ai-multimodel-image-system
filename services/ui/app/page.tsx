@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import {
+  mediaUrl,
   streamChat,
   type ChatMessage,
   type Denomination,
@@ -10,6 +11,7 @@ import {
 
 interface Turn extends ChatMessage {
   image?: string | null;
+  imageUrl?: string | null;
   intent?: IntentInfo | null;
   streaming?: boolean;
 }
@@ -76,6 +78,7 @@ export default function Home() {
             ...t,
             content: final.reply,
             image: final.image_base64,
+            imageUrl: mediaUrl(final.image_url),
             streaming: false,
           })),
         onError: (msg) => setError(msg),
@@ -105,7 +108,9 @@ export default function Home() {
             {turn.streaming && !turn.content ? (
               <span className="muted">thinking...</span>
             ) : null}
-            {turn.image ? (
+            {turn.imageUrl ? (
+              <img src={turn.imageUrl} alt="generated" />
+            ) : turn.image ? (
               <img
                 src={`data:image/png;base64,${turn.image}`}
                 alt="generated"

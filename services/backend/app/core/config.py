@@ -120,5 +120,12 @@ class Settings(BaseSettings):
     # session view while the prompt window remains "summary + last N turns".
     context_recent_turns: int = 3
 
+    # Durable chat store (Postgres). When disabled, falls back to in-process memory.
+    chat_store_enabled: bool = True
+    database_url: str = "postgresql+asyncpg://christai:christai@postgres:5432/christai"
+    # Where rendered PNGs are written and the URL path they are served under.
+    media_dir: str = "/data/media"
+    media_url_path: str = "/media"
+
 
 settings = Settings()

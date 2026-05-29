@@ -20,6 +20,9 @@ services:
     depends_on:
       - qdrant
       - mcp-server
+      - postgres
+    volumes:
+      - media_data:/data/media
     networks: [appnet]
     healthcheck:
       test:
@@ -70,6 +73,28 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+
+  # ---------------------------------------------------------------------------
+  # Postgres - durable chat store (sessions, turns, image refs)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16
+    env_file: .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-christai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-christai}
+      POSTGRES_DB: ${POSTGRES_DB:-christai}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks: [appnet]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-christai} -d ${POSTGRES_DB:-christai}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   # ---------------------------------------------------------------------------
   # Qdrant vector DB
@@ -171,3 +196,5 @@ volumes:
   qdrant_data:
   hf_cache:
   kagglehub_cache:
+  pg_data:
+  media_data:

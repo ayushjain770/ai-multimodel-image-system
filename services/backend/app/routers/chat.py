@@ -65,6 +65,8 @@ class Finalized:
     moderation: ModerationInfo | None
     verification: list[VerificationItem]
     image_base64: str | None
+    image_url: str | None = None
+    image_id: str | None = None
 
 
 def _trim_window(history: list[ChatMessage]) -> list[ChatMessage]:
@@ -92,6 +94,33 @@ def _correction_note(items: list[VerificationItem]) -> str | None:
     return "\n".join(lines)
 
 
+async def persist_turn(
+    request: Request,
+    payload: ChatRequest,
+    reply: str,
+    intent_kind: str | None = None,
+    image_id: str | None = None,
+) -> None:
+    """Persist a turn to the durable store (with intent/image) or memory fallback."""
+    if payload.session_id is None:
+        return
+    app = request.app
+    chat_store = getattr(app.state, "chat_store", None)
+    if chat_store is not None:
+        await chat_store.record_turn(
+            payload.session_id,
+            payload.denomination.value,
+            payload.message,
+            reply,
+            intent_kind,
+            image_id,
+        )
+        return
+    memory = getattr(app.state, "memory", None)
+    if memory is not None:
+        await memory.append(payload.session_id, payload.message, reply)
+
+
 async def prepare_turn(
     request: Request, payload: ChatRequest
 ) -> tuple[ChatResponse | None, PreparedTurn | None]:
@@ -112,8 +141,7 @@ async def prepare_turn(
         verdict = await moderator.moderate_input(payload.message)
         if not verdict.allowed:
             reply = verdict.message or settings.moderation_refusal
-            if use_memory:
-                await memory.append(payload.session_id, payload.message, reply)
+            await persist_turn(request, payload, reply)
             return (
                 ChatResponse(
                     reply=reply,
@@ -143,8 +171,7 @@ async def prepare_turn(
                     f"\u201c{authentic}\u201d\n\n"
                     "I'm happy to explain its meaning, context, or how it applies."
                 )
-                if use_memory:
-                    await memory.append(payload.session_id, payload.message, reply)
+                await persist_turn(request, payload, reply)
                 return (
                     ChatResponse(
                         reply=reply,
@@ -239,11 +266,22 @@ async def postprocess(
             reply = reply + note
 
     image_b64: str | None = None
+    image_url: str | None = None
+    image_id: str | None = None
     if not moderated and prepared.want_image and check_safety(payload.message).ok:
         params = await compose_image_prompt(
             app.state.llm_client, payload.message, payload.denomination.value
         )
-        image_b64 = await app.state.image_client.generate(params)
+        rendered = await app.state.image_client.generate(params)
+        chat_store = getattr(app.state, "chat_store", None)
+        if chat_store is not None and payload.session_id is not None:
+            ref = await chat_store.save_image(
+                payload.session_id, rendered, params.positive, params.negative
+            )
+            image_url = ref.url
+            image_id = ref.id
+        else:
+            image_b64 = rendered
 
     return Finalized(
         reply=reply,
@@ -251,6 +289,8 @@ async def postprocess(
         moderation=moderation_info,
         verification=verification,
         image_base64=image_b64,
+        image_url=image_url,
+        image_id=image_id,
     )
 
 
@@ -268,10 +308,13 @@ async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
     )
     fin = await postprocess(request, payload, prepared, reply)
 
-    if prepared.use_memory:
-        await request.app.state.memory.append(
-            payload.session_id, payload.message, fin.reply
-        )
+    await persist_turn(
+        request,
+        payload,
+        fin.reply,
+        prepared.intent.kind if prepared.intent else None,
+        fin.image_id,
+    )
 
     return ChatResponse(
         reply=fin.reply,
@@ -281,6 +324,7 @@ async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
         moderation=fin.moderation,
         intent=prepared.intent,
         image_base64=fin.image_base64,
+        image_url=fin.image_url,
         session_id=payload.session_id,
         backend=prepared.backend,
     )
@@ -314,6 +358,7 @@ async def chat_stream(request: Request, payload: ChatRequest) -> StreamingRespon
                     else None,
                     "verification": [v.model_dump() for v in early.verification],
                     "image_base64": None,
+                    "image_url": None,
                 },
             )
             yield _sse("done", {})
@@ -341,10 +386,13 @@ async def chat_stream(request: Request, payload: ChatRequest) -> StreamingRespon
 
         fin = await postprocess(request, payload, prepared, "".join(chunks))
 
-        if prepared.use_memory:
-            await request.app.state.memory.append(
-                payload.session_id, payload.message, fin.reply
-            )
+        await persist_turn(
+            request,
+            payload,
+            fin.reply,
+            prepared.intent.kind if prepared.intent else None,
+            fin.image_id,
+        )
 
         yield _sse(
             "final",
@@ -355,6 +403,7 @@ async def chat_stream(request: Request, payload: ChatRequest) -> StreamingRespon
                 "moderation": fin.moderation.model_dump() if fin.moderation else None,
                 "verification": [v.model_dump() for v in fin.verification],
                 "image_base64": fin.image_base64,
+                "image_url": fin.image_url,
             },
         )
         yield _sse("done", {})

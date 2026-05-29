@@ -94,6 +94,9 @@ class ChatResponse(BaseModel):
     moderation: ModerationInfo | None = None
     intent: IntentInfo | None = None
     image_base64: str | None = None
+    image_url: str | None = Field(
+        default=None, description="Relative URL of the persisted image (durable store)"
+    )
     session_id: str | None = Field(
         default=None, description="Echoes the request session_id when memory is used"
     )
@@ -170,6 +173,32 @@ class SessionStateResponse(BaseModel):
     summary: str
     recent: list[ChatMessage]
     turns: int
+
+
+class SessionSummary(BaseModel):
+    session_id: str
+    denomination: str
+    turns: int
+    preview: str
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class SessionListResponse(BaseModel):
+    sessions: list[SessionSummary]
+
+
+class HistoryTurn(BaseModel):
+    role: str
+    content: str
+    intent_kind: str | None = None
+    image_url: str | None = None
+    created_at: str | None = None
+
+
+class HistoryResponse(BaseModel):
+    session_id: str
+    turns: list[HistoryTurn]
 
 
 class DependencyStatus(BaseModel):

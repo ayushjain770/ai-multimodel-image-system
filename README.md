@@ -121,6 +121,8 @@ models/                   mounted checkpoints (gitignored)
 - `POST /api/v1/search` - scripture retrieval (RAG), denomination-filtered.
 - `POST /api/v1/verify` - anti-hallucination check of references in text (valid | unknown_book | nonexistent | misquote).
 - `POST /api/v1/chat/stream` - same pipeline as `/chat`, streamed as Server-Sent Events (`meta` -> `token`* -> `final` -> `done`).
+- `GET /api/v1/sessions` - list stored conversations (durable store).
+- `GET /api/v1/session/{id}/history` - full turn history with image URLs (durable store).
 - `POST /api/v1/image` - Christian-themed image generation (safety guard + style templating; refuses disallowed prompts).
 - `POST /api/v1/compose_image_prompt` - LLM-assisted structured image prompt (no render).
 - `POST /api/v1/moderate` - screen text with the safety rules (`stage`: input | output).
@@ -131,6 +133,27 @@ models/                   mounted checkpoints (gitignored)
 ## MCP tools (:8001)
 
 `ping`, `scripture_search`, `verse_verify`, `generate_image`, `prompt_composer`, `moderate` - all delegate to the backend (URL from env).
+
+## Durable store + image persistence (Phase 9)
+
+Chat history is persisted in Postgres via
+[services/backend/app/services/chat_store.py](services/backend/app/services/chat_store.py),
+which implements the same `SessionMemory` interface used for the prompt window
+(so the rolling summary + last-N turns logic is unchanged) while retaining the
+full turn history durably. Tables: `sessions`, `turns`, `images`
+([services/backend/app/db/models.py](services/backend/app/db/models.py)); the
+schema is created on startup.
+
+Rendered images are written to the `media_data` volume (`MEDIA_DIR`) and served as
+static files at `MEDIA_URL_PATH` (`/media`). Chat responses and the stream `final`
+event carry a relative `image_url` (e.g. `/media/<id>.png`) instead of base64; the
+UI prefixes it with the API base. Set `CHAT_STORE_ENABLED=false` to fall back to
+in-process memory + base64 images (no Postgres needed).
+
+```bash
+curl -s http://localhost:8080/api/v1/sessions | jq
+curl -s http://localhost:8080/api/v1/session/demo/history | jq
+```
 
 ## Streaming + context window (Phase 8)
 

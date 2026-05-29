@@ -40,6 +40,7 @@ export interface StreamFinal {
   moderation: { stage: string; category: string | null; reason: string | null } | null;
   verification: VerificationItem[];
   image_base64: string | null;
+  image_url: string | null;
 }
 
 export interface StreamHandlers {
@@ -49,7 +50,13 @@ export interface StreamHandlers {
   onError?: (message: string) => void;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+
+/** Resolve a relative media URL (e.g. /media/x.png) against the API base. */
+export function mediaUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  return url.startsWith("http") ? url : `${API_URL}${url}`;
+}
 
 export async function streamChat(
   message: string,
