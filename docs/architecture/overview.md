@@ -58,7 +58,9 @@
 
 3. **Planner-gated work** — The planner classifies each message (normal / scripture /
    image) so RAG, verification, and image generation only run when needed. RAG miss
-   short-circuits with an honest template (no hallucination).
+   short-circuits with an honest template (no hallucination). Image turns use a
+   deterministic template reply (`build_image_reply`) instead of the synthesizer LLM,
+   avoiding model refusals like "I can't generate images."
 
 4. **Layered safety** — Rule-based moderation is always on; an optional LLM judge
    adds a second opinion in prod. Image prompts go through the same safety patterns.
@@ -89,14 +91,20 @@ sequenceDiagram
         alt rag_miss
             BE-->>UI: SSE honest template
         end
+        BE->>Synth: stream synthesizer LLM
+        loop streaming
+            Synth-->>UI: SSE token
+        end
     else image route
         BE->>BE: compose image prompt
+        BE-->>UI: SSE template reply (build_image_reply)
+    else normal route
+        BE->>Synth: stream synthesizer LLM
+        loop streaming
+            Synth-->>UI: SSE token
+        end
     end
-    BE->>Synth: stream synthesizer
-    loop streaming
-        Synth-->>UI: SSE token
-    end
-    BE->>IMG: render pre-composed image
+    BE->>IMG: render pre-composed image (image route only)
     BE->>VER: verify (scripture)
     BE->>PG: persist turn
     BE-->>UI: SSE final + done

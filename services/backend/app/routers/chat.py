@@ -11,7 +11,7 @@ Pipeline:
 3. Planner: normal | scripture | image.
 4. Execute: RAG (scripture) or image compose (image / generate_image flag).
 5. rag_miss short-circuit (honest template, no synthesizer).
-6. Synthesizer LLM (stream or single reply).
+6. Synthesizer LLM or image template reply (stream or single reply).
 7. postprocess: render pre-composed image, output moderation, verify, persist.
 """
 
@@ -34,7 +34,7 @@ from app.schemas import (
 )
 from app.services.image_prompt import ImageParams, check_safety, compose_image_prompt
 from app.services.planner import Plan
-from app.services.prompt_builder import build_synthesizer_prompt
+from app.services.prompt_builder import build_image_reply, build_synthesizer_prompt
 
 router = APIRouter(prefix="/api/v1", tags=["chat"])
 
@@ -50,6 +50,8 @@ class PreparedTurn:
     plan: Plan | None
     rag_miss: bool
     image_params: ImageParams | None
+    image_scene: str | None
+    image_reply: str | None
     backend: BackendInfo
 
 
@@ -245,6 +247,8 @@ async def prepare_turn(
 
     # Execute: image compose (execution-phase LLM call)
     image_params: ImageParams | None = None
+    image_scene: str | None = None
+    image_reply: str | None = None
     if want_image:
         safety = check_safety(payload.message)
         if not safety.ok:
@@ -260,13 +264,15 @@ async def prepare_turn(
                 ),
                 None,
             )
-        image_params = await compose_image_prompt(
+        composed = await compose_image_prompt(
             app.state.llm_client, payload.message, payload.denomination.value
         )
+        image_params = composed.params
+        image_scene = composed.scene
+        image_reply = build_image_reply(composed.scene)
 
-    intent_info = _plan_to_intent(plan, rag_miss=False)
     synth_plan = plan
-    if want_image and plan.route != "image":
+    if want_image:
         synth_plan = Plan(
             route="image",
             tool="generate_image",
@@ -274,7 +280,10 @@ async def prepare_turn(
             source=plan.source,
             needs_rag=False,
         )
-    system_prompt = build_synthesizer_prompt(synth_plan, payload.denomination, summary)
+    intent_info = _plan_to_intent(synth_plan if want_image else plan, rag_miss=False)
+    system_prompt = build_synthesizer_prompt(
+        synth_plan, payload.denomination, summary, image_scene=image_scene
+    )
 
     return None, PreparedTurn(
         history=history,
@@ -284,6 +293,8 @@ async def prepare_turn(
         plan=plan,
         rag_miss=False,
         image_params=image_params,
+        image_scene=image_scene,
+        image_reply=image_reply,
         backend=backend,
     )
 
@@ -308,7 +319,12 @@ async def postprocess(
             )
 
     verification: list[VerificationItem] = []
-    scripture_route = prepared.plan is not None and prepared.plan.route == "scripture"
+    effective_route = (
+        "image"
+        if prepared.image_params is not None
+        else (prepared.plan.route if prepared.plan is not None else "normal")
+    )
+    scripture_route = effective_route == "scripture"
     if verifier is not None and not moderated and scripture_route:
         results = await verifier.verify_text(reply)
         verification = [VerificationItem(**vars(r)) for r in results]
@@ -351,12 +367,15 @@ async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
     if early is not None:
         return early
 
-    reply = await request.app.state.llm_client.chat(
-        payload.message,
-        prepared.history,
-        prepared.citations,
-        system_prompt=prepared.system_prompt,
-    )
+    if prepared.image_reply is not None:
+        reply = prepared.image_reply
+    else:
+        reply = await request.app.state.llm_client.chat(
+            payload.message,
+            prepared.history,
+            prepared.citations,
+            system_prompt=prepared.system_prompt,
+        )
     fin = await postprocess(request, payload, prepared, reply)
 
     await persist_turn(
@@ -421,20 +440,26 @@ async def chat_stream(request: Request, payload: ChatRequest) -> StreamingRespon
                 "citations": [c.model_dump() for c in prepared.citations],
                 "session_id": payload.session_id,
                 "backend": prepared.backend.model_dump(),
+                "scene_preview": prepared.image_scene,
             },
         )
 
-        chunks: list[str] = []
-        async for delta in request.app.state.llm_client.stream_chat(
-            payload.message,
-            prepared.history,
-            prepared.citations,
-            system_prompt=prepared.system_prompt,
-        ):
-            chunks.append(delta)
-            yield _sse("token", {"delta": delta})
+        if prepared.image_reply is not None:
+            yield _sse("token", {"delta": prepared.image_reply})
+            reply = prepared.image_reply
+        else:
+            chunks: list[str] = []
+            async for delta in request.app.state.llm_client.stream_chat(
+                payload.message,
+                prepared.history,
+                prepared.citations,
+                system_prompt=prepared.system_prompt,
+            ):
+                chunks.append(delta)
+                yield _sse("token", {"delta": delta})
+            reply = "".join(chunks)
 
-        fin = await postprocess(request, payload, prepared, "".join(chunks))
+        fin = await postprocess(request, payload, prepared, reply)
 
         await persist_turn(
             request,

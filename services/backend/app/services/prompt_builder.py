@@ -36,10 +36,12 @@ _SCRIPTURE_ROUTE_RULES = (
 )
 
 _IMAGE_ROUTE_RULES = (
-    "Route: image (user requested visual art; an image is being generated).\n"
-    "- Briefly acknowledge the request in one or two sentences.\n"
-    "- Describe what kind of reverent Christian artwork was created.\n"
-    "- Do not claim the image is already visible until the user sees it."
+    "Route: image (user requested visual art; artwork is being generated for them).\n"
+    "- You ARE creating a reverent Christian image for the user. Never say you "
+    "cannot generate or show images.\n"
+    "- Do not cite Scripture, books, or verse references on this turn.\n"
+    "- Reply in 1–2 short sentences of plain, warm language.\n"
+    "- Briefly describe the scene being illustrated."
 )
 
 _DENOMINATION_FRAMING: dict[Denomination, str] = {
@@ -67,6 +69,21 @@ _DENOMINATION_FRAMING: dict[Denomination, str] = {
 }
 
 
+def _short_scene(scene: str) -> str:
+    """Trim scene text for user-facing template (drop trailing punctuation clutter)."""
+    text = scene.strip()
+    if len(text) > 200:
+        text = text[:197].rsplit(" ", 1)[0] + "..."
+    if text and text[-1] not in ".!?":
+        text = text + "."
+    return text
+
+
+def build_image_reply(scene: str) -> str:
+    """Deterministic user-facing message while ComfyUI renders the image."""
+    return settings.image_reply_template.format(scene=_short_scene(scene))
+
+
 def build_system_prompt(
     denomination: Denomination = Denomination.NEUTRAL,
     summary: str | None = None,
@@ -83,6 +100,7 @@ def build_synthesizer_prompt(
     plan: Plan,
     denomination: Denomination = Denomination.NEUTRAL,
     summary: str | None = None,
+    image_scene: str | None = None,
 ) -> str:
     """Build the synthesizer system prompt based on the planner route."""
     route_rules = {
@@ -90,14 +108,19 @@ def build_synthesizer_prompt(
         "scripture": _SCRIPTURE_ROUTE_RULES,
         "image": _IMAGE_ROUTE_RULES,
     }
-    parts = [
-        settings.llm_persona,
-        _TONE_RULES,
-        route_rules.get(plan.route, _NORMAL_ROUTE_RULES),
-        _DENOMINATION_FRAMING.get(
-            denomination, _DENOMINATION_FRAMING[Denomination.NEUTRAL]
-        ),
-    ]
+    parts = [settings.llm_persona]
+    if plan.route != "image":
+        parts.append(_TONE_RULES)
+    route_text = route_rules.get(plan.route, _NORMAL_ROUTE_RULES)
+    if plan.route == "image" and image_scene:
+        route_text = f"{route_text}\n- Scene being rendered: {image_scene}"
+    parts.append(route_text)
+    if plan.route != "image":
+        parts.append(
+            _DENOMINATION_FRAMING.get(
+                denomination, _DENOMINATION_FRAMING[Denomination.NEUTRAL]
+            )
+        )
     if summary:
         parts.append("Conversation so far (summary of earlier turns):\n" + summary)
     if plan.reason:

@@ -15,6 +15,11 @@ class TestClassifyRules(unittest.TestCase):
         self.assertEqual(plan.tool, "generate_image")
         self.assertFalse(plan.needs_rag)
 
+    def test_see_phrasing_routes_image(self) -> None:
+        plan = classify_rules("I want to see Jesus")
+        self.assertEqual(plan.route, "image")
+        self.assertEqual(plan.tool, "generate_image")
+
     def test_scripture_route(self) -> None:
         plan = classify_rules("Who was Moses in the Bible?")
         self.assertEqual(plan.route, "scripture")

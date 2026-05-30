@@ -21,7 +21,8 @@ RouteKind = Literal["normal", "scripture", "image"]
 
 _IMAGE_RE = re.compile(
     r"\b(image|picture|photo|paint(?:ing)?|draw|drawing|illustrat\w*|render|"
-    r"depict|portrait|art(?:work)?|wallpaper|generate\s+(?:an?\s+)?(?:image|picture))\b",
+    r"depict|portrait|art(?:work)?|wallpaper|generate\s+(?:an?\s+)?(?:image|picture)|"
+    r"want to see|show me|let me see|see a|see the|visuali\w*)\b",
     re.IGNORECASE,
 )
 _SCRIPTURE_RE = re.compile(

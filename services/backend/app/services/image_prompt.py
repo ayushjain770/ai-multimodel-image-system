@@ -35,6 +35,14 @@ class ImageParams:
 
 
 @dataclass(frozen=True)
+class ComposedImage:
+    """LLM-composed scene plus fully wrapped SDXL params."""
+
+    params: ImageParams
+    scene: str
+
+
+@dataclass(frozen=True)
 class SafetyResult:
     ok: bool
     reason: str | None = None
@@ -88,7 +96,7 @@ async def compose_image_prompt(
     request: str,
     denomination: str | None = None,
     negative_override: str | None = None,
-) -> ImageParams:
+) -> ComposedImage:
     """LLM-assisted composer: turn a raw request into a structured SDXL prompt.
 
     The LLM rewrites the request into a tasteful Christian-art scene, which is
@@ -111,4 +119,5 @@ async def compose_image_prompt(
     if not scene:
         scene = hint
     logger.info("[image-composer] request=%r -> scene=%r", request[:60], scene[:80])
-    return build_prompt(scene, negative_override=negative_override)
+    params = build_prompt(scene, negative_override=negative_override)
+    return ComposedImage(params=params, scene=scene)

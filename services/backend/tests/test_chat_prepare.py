@@ -59,6 +59,21 @@ class TestPrepareTurnRag(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(early.reply, settings.rag_miss_reply)
         self.assertTrue(early.intent.rag_miss)
 
+    async def test_image_turn_uses_template_reply_and_intent(self) -> None:
+        app = _make_app(collection_ready=True)
+        payload = ChatRequest(
+            message="I want to see Jesus",
+            denomination=Denomination.NEUTRAL,
+        )
+        early, prepared = await prepare_turn(_make_request(app), payload)
+        self.assertIsNone(early)
+        self.assertIsNotNone(prepared)
+        assert prepared is not None
+        self.assertEqual(prepared.intent.kind, "image")
+        self.assertIsNotNone(prepared.image_reply)
+        self.assertIn("Please wait", prepared.image_reply)
+        self.assertIsNotNone(prepared.image_scene)
+
     async def test_synthesizer_uses_image_route_when_forced(self) -> None:
         app = _make_app(collection_ready=True)
         payload = ChatRequest(
@@ -70,8 +85,10 @@ class TestPrepareTurnRag(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(early)
         self.assertIsNotNone(prepared)
         assert prepared is not None
+        self.assertEqual(prepared.intent.kind, "image")
         self.assertIn("Route: image", prepared.system_prompt)
         self.assertIsNotNone(prepared.image_params)
+        self.assertIsNotNone(prepared.image_reply)
 
 
 if __name__ == "__main__":

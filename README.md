@@ -312,5 +312,6 @@ tests/langchain_tools/      MCP + intent routing test harness
 - MCP has no page at `/` — use `http://<host>:8001/mcp` for the MCP endpoint. A `GET /` 404 is normal.
 - Set `LLM_BACKEND=vllm` and `IMAGE_BACKEND=comfy` in `.env`.
 - Image composer LLM uses `IMAGE_COMPOSER_TEMPERATURE=0.3` (scene rewrite before ComfyUI render).
+- Image turns use `IMAGE_REPLY_TEMPLATE` for user-facing text (not the synthesizer LLM).
 - Set `HF_TOKEN` if the Qwen model repo is gated.
 - Weights live in Docker volumes (`hf_cache`, `models/`) — not committed to git.

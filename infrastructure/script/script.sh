@@ -95,11 +95,14 @@ do_smoke() {
     log_ok "chat replied (citations=${cites}): ${reply}"
 
     if [[ "${DEPLOY_MODE}" == "prod" ]]; then
-        local compose_payload='{"message":"Draw a peaceful nativity scene"}'
+        local compose_payload='{"request":"Draw a peaceful nativity scene"}'
         resp="$(curl -fsS --max-time 60 -X POST "${base}/api/v1/compose_image_prompt" \
             -H 'Content-Type: application/json' -d "${compose_payload}")" \
             || die "smoke compose_image_prompt request failed"
-        log_ok "compose_image_prompt ok"
+        local positive
+        positive="$(printf '%s' "${resp}" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("positive","")[:80])')"
+        [[ -n "${positive}" ]] || die "smoke compose_image_prompt returned empty positive prompt"
+        log_ok "compose_image_prompt ok: ${positive}"
     fi
 }
 

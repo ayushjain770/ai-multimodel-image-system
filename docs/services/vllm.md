@@ -44,10 +44,11 @@ These are forwarded to the UI as SSE `token` events.
 | Task | When | Config |
 | ---- | ---- | ------ |
 | **Planner** | Every chat turn when `LLM_BACKEND=vllm` | `PLANNER_INSTRUCTION` |
-| **Synthesizer** | Streamed chat reply after planner + execute | `LLM_TEMPERATURE` |
-| Chat replies | Every non-blocked turn | Always (or mock) |
+| **Synthesizer** | Streamed chat reply (normal and scripture routes only) | `LLM_TEMPERATURE` |
+| Chat replies | Non-image turns | Always (or mock) |
 | Conversation summarization | Turns exceed `MEMORY_SUMMARY_THRESHOLD` | `memory.py` / `chat_store.py` |
-| Image prompt composition | Image route (execution phase) | `image_prompt.py` |
+| Image prompt composition | Image route (execution phase) | `image_prompt.py`, `IMAGE_COMPOSER_TEMPERATURE` |
+| Image turn user text | Not used — backend uses `IMAGE_REPLY_TEMPLATE` instead | — |
 | Moderation judge | Borderline input | `MODERATION_LLM_JUDGE=true` |
 
 ## Key configuration

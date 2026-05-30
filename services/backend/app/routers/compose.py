@@ -29,7 +29,7 @@ async def compose(request: Request, payload: ComposeRequest) -> ComposeResponse:
         negative_override=payload.negative,
     )
     return ComposeResponse(
-        positive=params.positive,
-        negative=params.negative,
+        positive=params.params.positive,
+        negative=params.params.negative,
         backend=backend,
     )

@@ -96,8 +96,9 @@ class Settings(BaseSettings):
         "- normal: general chat, greetings, or topics NOT related to Christianity "
         "(weather, sports, coding, etc.)\n"
         "- scripture: questions about the Bible, Jesus, faith, prayer, church, "
-        "Christian doctrine, or Scripture\n"
-        "- image: user wants to create, draw, paint, or generate a picture/photo\n"
+        "Christian doctrine, or Scripture (when the user wants information, not a picture)\n"
+        "- image: user wants to see, show, visualize, create, draw, paint, or "
+        "generate a picture/photo/artwork\n"
         "Reply with ONLY valid JSON: {\"route\":\"normal|scripture|image\","
         "\"reason\":\"brief explanation\"}"
     )
@@ -111,10 +112,16 @@ class Settings(BaseSettings):
     # System prompt for the image prompt-composer (turns a request into a scene).
     image_composer_instruction: str = (
         "You are an art director for reverent Christian fine art. Rewrite the "
-        "user's request into a single vivid, tasteful scene description suitable "
-        "for an image model. Keep it concrete and dignified, avoid text/words in "
-        "the image, and never depict anything explicit, violent, or mocking. "
-        "Reply with only the scene description, one sentence."
+        "user's request into one plain, visual sentence describing what appears in "
+        "the picture (subject, setting, mood). Keep it concrete and dignified. "
+        "Do not cite books, chapters, or verses. Avoid text/words in the image. "
+        "Never depict anything explicit, violent, or mocking. "
+        "Reply with only the scene description."
+    )
+    # User-facing reply when an image is being rendered (uses {scene} placeholder).
+    image_reply_template: str = (
+        "I'm creating a reverent Christian artwork for you: {scene}. "
+        "Please wait a moment — your image will appear below shortly."
     )
 
     # Safety / moderation

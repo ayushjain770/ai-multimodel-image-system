@@ -59,7 +59,7 @@ Both `/chat` and `/chat/stream` share `prepare_turn()` (planner + execute) and
 | 2 | `prepare_turn` | **Planner** — route: normal / scripture / image |
 | 3 | `prepare_turn` | **Execute** — RAG retrieve or image prompt compose |
 | 4 | `prepare_turn` | **rag_miss** short-circuit (honest template, no synthesizer) |
-| 5 | stream/chat | **Synthesizer** LLM (plan-aware system prompt) |
+| 5 | stream/chat | **Synthesizer** LLM (normal/scripture) **or** image template (`build_image_reply`) |
 | 6 | `postprocess` | Output moderation |
 | 7 | `postprocess` | Verse verification (scripture route) |
 | 8 | `postprocess` | Render pre-composed image |
@@ -81,6 +81,8 @@ See [planner.md](planner.md) for route details and RAG miss policy.
 | `ORCHESTRATOR_ENABLED` | `true` | Planner routing |
 | `RAG_MIN_SCORE` | `0.35` | Min Qdrant score for RAG hits |
 | `RAG_MISS_REPLY` | (template) | Honest reply when no grounded verses |
+| `IMAGE_REPLY_TEMPLATE` | (template) | User-facing text on image turns (`{scene}` placeholder) |
+| `IMAGE_COMPOSER_TEMPERATURE` | `0.3` | LLM temperature for scene compose |
 | `MODERATION_ENABLED` | `true` | Safety layer |
 | `CHAT_STORE_ENABLED` | `true` | Postgres persistence |
 | `CONTEXT_RECENT_TURNS` | `3` | Turns sent to LLM per request |

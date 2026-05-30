@@ -18,16 +18,19 @@ In dev, `IMAGE_BACKEND=mock` returns a placeholder PNG so the image pipeline
 ## Architecture
 
 ```
-Backend (compose_image_prompt)
+User message (image route)
     │
     ▼
-image_prompt.py  →  safety check  →  style template  →  ImageParams
+compose_image_prompt  →  LLM scene + style template  →  ImageParams
+    │
+    ▼
+build_image_reply(scene)  →  template text streamed to UI ("please wait…")
     │
     ▼
 comfy_client.py  →  POST workflow JSON  →  ComfyUI :8188
     │
     ▼
-PNG bytes  →  chat_store.save_image()  →  /media/{id}.png
+PNG bytes  →  chat_store.save_image()  →  /media/{id}.png  (SSE final event)
 ```
 
 ## Workflow

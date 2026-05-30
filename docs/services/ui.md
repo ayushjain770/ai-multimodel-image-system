@@ -35,6 +35,11 @@ services/ui/
 | `meta` | `onMeta` | Shows intent badge (normal/scripture/image) |
 | `token` | `onToken` | Appends delta to assistant bubble |
 | `final` | `onFinal` | Sets final reply, image URL, moderation info |
+
+On **image** turns, the assistant text is a deterministic template ("Creating your
+artwork… please wait") streamed in `token` events; the PNG arrives in `final`.
+While streaming before text arrives, the UI shows **"Generating artwork…"** when
+intent is `image`.
 | `done` | — | Marks streaming complete |
 
 ### Session sidebar (Phase 10)

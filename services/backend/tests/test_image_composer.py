@@ -37,8 +37,9 @@ class TestImageComposerTemperature(unittest.IsolatedAsyncioTestCase):
     async def test_compose_uses_composer_marker(self) -> None:
         llm = TempRecordingLLM()
         params = await compose_image_prompt(llm, "Draw Jesus at the tomb")
-        self.assertIn("reverent", params.positive.lower())
-        self.assertIn("christian", params.positive.lower())
+        self.assertIn("reverent", params.params.positive.lower())
+        self.assertIn("christian", params.params.positive.lower())
+        self.assertTrue(params.scene)
 
 
 if __name__ == "__main__":

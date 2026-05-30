@@ -219,7 +219,11 @@ export default function Home() {
                 ) : null}
                 {turn.content}
                 {turn.streaming && !turn.content ? (
-                  <span className="muted">thinking...</span>
+                  <span className="muted">
+                    {badge === "image"
+                      ? "Generating artwork…"
+                      : "thinking..."}
+                  </span>
                 ) : null}
                 {turn.imageUrl ? (
                   <img src={turn.imageUrl} alt="generated" />
