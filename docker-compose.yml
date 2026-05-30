@@ -68,7 +68,8 @@ services:
       - backend
     networks: [appnet]
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000/"]
+      # Use 127.0.0.1 — Alpine wget resolves localhost to ::1; Node listens on IPv4 only.
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/"]
       interval: 15s
       timeout: 5s
       retries: 5
