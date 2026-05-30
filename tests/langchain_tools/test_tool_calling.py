@@ -40,7 +40,7 @@ VLLM_MODEL = os.environ.get("VLLM_MODEL", "Qwen/Qwen2.5-VL-3B-Instruct")
 
 
 # --------------------------------------------------------------------------- #
-# 1. Intent router (the orchestrator's decision function, rule-first).
+# 1. Intent router (mirrors services/backend/app/services/planner.py rules).
 # --------------------------------------------------------------------------- #
 
 _IMAGE_RE = re.compile(
@@ -139,7 +139,12 @@ import pytest  # noqa: E402
 
 
 def test_intent_routing() -> None:
-    assert route_intent("How are you today?").kind == "normal"
+    normal = route_intent("How are you today?")
+    assert normal.kind == "normal"
+    assert normal.needs_rag is False
+    off_topic = route_intent("What's the weather in London?")
+    assert off_topic.kind == "normal"
+    assert off_topic.needs_rag is False
     assert route_intent("What did Jesus say about forgiveness?").kind == "scripture"
     assert route_intent("Paint me a picture of the Good Shepherd").kind == "image"
     # image beats scripture when both present

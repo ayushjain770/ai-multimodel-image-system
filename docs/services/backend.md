@@ -29,7 +29,7 @@ app/
 │   ├── session.py       GET/DELETE sessions, history
 │   └── health.py        GET /health/healthz, /health/readyz
 ├── services/
-│   ├── orchestrator.py  intent classification (normal/scripture/image)
+│   ├── planner.py       route planner (normal/scripture/image)
 │   ├── moderation.py    input/output safety rules + optional LLM judge
 │   ├── retriever.py     embed query → Qdrant search → citations
 │   ├── verifier.py      parse references → canonical lookup → fuzzy match
@@ -49,21 +49,27 @@ app/
 
 ## Chat pipeline
 
-Both `/chat` and `/chat/stream` share `prepare_turn()` and `postprocess()`:
+Both `/chat` and `/chat/stream` share `prepare_turn()` (planner + execute) and
+`postprocess()` (render + verify):
 
 | Step | Function | What happens |
 | ---- | -------- | -------------- |
 | 0 | `prepare_turn` | Input moderation; rewrite/alter guard |
 | 1 | `prepare_turn` | Load memory (summary + `CONTEXT_RECENT_TURNS`) |
-| 2 | `prepare_turn` | Intent classification via orchestrator |
-| 3 | `prepare_turn` | RAG retrieve (scripture intent only) |
-| 4 | `prepare_turn` | Build system prompt → call LLM |
-| 5 | `postprocess` | Output moderation |
-| 6 | `postprocess` | Verse verification |
-| 7 | `postprocess` | Image compose + render (image intent) |
-| 8 | both | Persist turn to chat store |
+| 2 | `prepare_turn` | **Planner** — route: normal / scripture / image |
+| 3 | `prepare_turn` | **Execute** — RAG retrieve or image prompt compose |
+| 4 | `prepare_turn` | **rag_miss** short-circuit (honest template, no synthesizer) |
+| 5 | stream/chat | **Synthesizer** LLM (plan-aware system prompt) |
+| 6 | `postprocess` | Output moderation |
+| 7 | `postprocess` | Verse verification (scripture route) |
+| 8 | `postprocess` | Render pre-composed image |
+| 9 | both | Persist turn to chat store |
+
+User messages arrive via **HTTP POST JSON**; only the assistant reply uses **SSE**.
 
 Streaming emits SSE events: `meta` → `token`* → `final` → `done`.
+
+See [planner.md](planner.md) for route details and RAG miss policy.
 
 ## Key configuration
 
@@ -72,7 +78,9 @@ Streaming emits SSE events: `meta` → `token`* → `final` → `done`.
 | `LLM_BACKEND` | `mock` | `mock` or `vllm` |
 | `IMAGE_BACKEND` | `mock` | `mock` or `comfy` |
 | `RAG_ENABLED` | `true` | Enable retrieval |
-| `ORCHESTRATOR_ENABLED` | `true` | Intent routing |
+| `ORCHESTRATOR_ENABLED` | `true` | Planner routing |
+| `RAG_MIN_SCORE` | `0.35` | Min Qdrant score for RAG hits |
+| `RAG_MISS_REPLY` | (template) | Honest reply when no grounded verses |
 | `MODERATION_ENABLED` | `true` | Safety layer |
 | `CHAT_STORE_ENABLED` | `true` | Postgres persistence |
 | `CONTEXT_RECENT_TURNS` | `3` | Turns sent to LLM per request |

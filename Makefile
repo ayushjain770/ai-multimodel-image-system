@@ -1,7 +1,6 @@
-# Phase 1/2 - thin wrappers around the orchestrator (infrastructure/script/script.sh).
-# The script is the single source of truth for build/up/health/ingest sequencing.
+# Phase 1/2 - thin wrappers around startup.sh (single entrypoint).
 
-SCRIPT := infrastructure/script/script.sh
+STARTUP := ./startup.sh
 
 .DEFAULT_GOAL := help
 
@@ -11,41 +10,41 @@ help: ## Show this help
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: dev
-dev: ## Full dev startup (Mac, mocks, no GPU): preflight->build->up->health->ingest->smoke
-	$(SCRIPT) up dev
+dev: ## Full dev startup (Mac, mocks, no GPU)
+	$(STARTUP) dev
 
 .PHONY: prod
-prod: ## Full prod startup (EC2, GPU): also downloads models before starting
-	$(SCRIPT) up prod
+prod: ## Full prod startup (EC2, GPU)
+	$(STARTUP) prod
 
 .PHONY: doctor
 doctor: ## Run preflight checks only
-	$(SCRIPT) doctor
+	$(STARTUP) doctor
 
 .PHONY: build
 build: ## Build images only (with error detection)
-	$(SCRIPT) build
+	$(STARTUP) build
 
 .PHONY: models
 models: ## Download Juggernaut (+ pre-pull LLM in prod)
-	$(SCRIPT) models
+	$(STARTUP) models
 
 .PHONY: ingest
 ingest: ## Run Bible corpus ingestion (idempotent)
-	$(SCRIPT) ingest
+	$(STARTUP) ingest
 
 .PHONY: health
 health: ## Wait for health + probe endpoints
-	$(SCRIPT) health
+	$(STARTUP) health
 
 .PHONY: logs
 logs: ## Tail logs. Scope with SVC=backend: make logs SVC=backend
-	$(SCRIPT) logs $(SVC)
+	$(STARTUP) logs $(SVC)
 
 .PHONY: down
 down: ## Stop and remove the stack (dev)
-	$(SCRIPT) down dev
+	$(STARTUP) down dev
 
 .PHONY: down-prod
 down-prod: ## Stop and remove the stack (prod)
-	$(SCRIPT) down prod
+	$(STARTUP) down prod

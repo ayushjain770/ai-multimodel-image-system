@@ -63,6 +63,8 @@ class IntentInfo(BaseModel):
     needs_rag: bool
     tool: str | None = None
     source: str
+    reason: str | None = None
+    rag_miss: bool | None = None
 
 
 VerificationStatus = Literal["valid", "unknown_book", "nonexistent", "misquote"]

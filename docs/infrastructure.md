@@ -1,7 +1,7 @@
 # Infrastructure & orchestration
 
 **Path:** `infrastructure/`  
-**Entrypoint:** `infrastructure/script/script.sh` (wrapped by `Makefile`)  
+**Entrypoint:** [`startup.sh`](../startup.sh) at repo root (delegates to `infrastructure/script/script.sh`)  
 **Role:** One-command startup, health checks, model download, and Bible ingestion.
 
 ## Why this exists
@@ -10,6 +10,21 @@ Running eight services manually (build, wait, ingest, smoke-test) is error-prone
 The orchestrator automates the full sequence with preflight checks, idempotent
 steps, and CI-friendly exit codes. Everything is env-driven — no hardcoded hosts,
 ports, or model paths.
+
+**One project, two deploy modes:** `./startup.sh` (dev) and `./startup.sh prod` use
+the same codebase; only compose overrides and LLM/image backends change.
+
+## Quick start
+
+```bash
+chmod +x startup.sh    # first time
+./startup.sh           # dev mode (default)
+./startup.sh prod      # GPU stack
+./startup.sh down      # stop dev stack
+./startup.sh doctor    # preflight only
+```
+
+`make dev`, `make prod`, etc. are thin aliases to `./startup.sh`.
 
 ## File structure
 
@@ -27,16 +42,17 @@ infrastructure/
 
 ## Commands
 
-| Command | Makefile | What it does |
-| ------- | -------- | ------------ |
-| `script.sh up [dev\|prod]` | `make dev` / `make prod` | Full startup sequence |
-| `script.sh doctor` | `make doctor` | Preflight checks only |
-| `script.sh build [dev\|prod]` | `make build` | Build images with error detection |
-| `script.sh models [dev\|prod]` | `make models` | Download Juggernaut + pre-pull LLM |
-| `script.sh ingest` | `make ingest` | Run Bible corpus ingestion |
-| `script.sh health` | `make health` | Wait for healthy + probe endpoints |
-| `script.sh logs [service]` | `make logs SVC=…` | Tail service logs |
-| `script.sh down [dev\|prod]` | `make down` / `make down-prod` | Stop and remove stack |
+| Command | `./startup.sh` alias | What it does |
+| ------- | -------------------- | ------------ |
+| `startup.sh` / `startup.sh dev` | `make dev` | Full startup (dev mode) |
+| `startup.sh prod` | `make prod` | Full startup (prod + GPU) |
+| `startup.sh doctor` | `make doctor` | Preflight checks only |
+| `startup.sh build` | `make build` | Build images with error detection |
+| `startup.sh models` | `make models` | Download Juggernaut + pre-pull LLM |
+| `startup.sh ingest` | `make ingest` | Run Bible corpus ingestion |
+| `startup.sh health` | `make health` | Wait for healthy + probe endpoints |
+| `startup.sh logs` | `make logs SVC=…` | Tail service logs |
+| `startup.sh down` | `make down` | Stop and remove stack |
 
 ## What `up` does (sequential)
 

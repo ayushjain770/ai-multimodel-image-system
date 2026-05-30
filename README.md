@@ -20,7 +20,7 @@ FastAPI gateway the UI and MCP agents talk to.
 | **Image gen** | ComfyUI + Juggernaut XL (SDXL) | Christian-themed image rendering |
 | **Tools** | FastMCP (streamable-http) | Exposes backend capabilities to LangChain/agents |
 | **Ingestion** | Python + kagglehub | Downloads and embeds the Kaggle Bible corpus |
-| **Orchestration** | Docker Compose, bash (`script.sh`) | Dev (mocks, no GPU) and prod (GPU) profiles |
+| **Orchestration** | Docker Compose, `./startup.sh` | One project; dev/prod are deploy modes |
 | **Testing** | LangChain tool-calling harness | Validates MCP tools and intent routing |
 
 ---
@@ -45,24 +45,30 @@ never talks to GPU services directly — only to the backend on `:8080`.
 
 ## How to run
 
+One project, two **deploy modes** (same codebase — only the LLM/image backend changes).
+
+| Mode | Command | LLM | Image | GPU |
+| ---- | ------- | --- | ----- | --- |
+| **dev** (default) | `./startup.sh` or `./startup.sh dev` | mock | mock | no |
+| **prod** | `./startup.sh prod` | vLLM | ComfyUI | yes |
+
 ### Prerequisites
 
 - Docker + Docker Compose v2
-- **Dev:** runs on a Mac or any machine without a GPU
-- **Prod:** Linux host with NVIDIA GPU + NVIDIA Container Toolkit
+- **Dev:** Mac or any machine without a GPU
+- **Prod:** Linux + NVIDIA GPU + NVIDIA Container Toolkit
 
 ### Quick start
 
-The orchestrator at `infrastructure/script/script.sh` (wrapped by the Makefile) handles
-everything: preflight, build, model download (prod), startup, health checks, Bible
-ingestion, and a smoke test. It bootstraps `.env` from `.env.example` on first run.
+`./startup.sh` handles preflight, build, model download (prod), startup, health checks,
+Bible ingestion, and a smoke test. It bootstraps `.env` from `.env.example` on first run.
+`make dev` / `make prod` are thin aliases to the same script.
 
 ```bash
-# Dev — mocks for LLM/image, real RAG on CPU, hot reload
-make dev
+chmod +x startup.sh   # first time only
 
-# Prod — full GPU stack (vLLM + ComfyUI/Juggernaut)
-make prod
+./startup.sh          # dev mode (default)
+./startup.sh prod     # full GPU stack
 ```
 
 After `make dev`:
@@ -100,8 +106,8 @@ framing. This project addresses that with a purpose-built pipeline:
    (Kaggle `oswinrh/bible`, 7 translations) instead of relying on model memory.
 2. **Anti-hallucination** — Post-generation verification checks every cited reference
    against a canonical verse store (valid, misquote, nonexistent, unknown book).
-3. **Intent-aware routing** — Small talk skips RAG; scripture questions get retrieval;
-   image requests go through an LLM prompt-composer and safety guard before rendering.
+3. **Planner brain** — Planner → Execute → Synthesizer routes each turn; RAG miss
+   returns an honest reply instead of hallucinating.
 4. **Safety layer** — Rule-based input/output moderation blocks hateful, violent,
    jailbreak, and self-harm content with on-brand refusals.
 5. **Conversational memory** — Rolling summary + last-N turns keep long chats coherent
@@ -126,8 +132,8 @@ framing. This project addresses that with a purpose-built pipeline:
 │  FastAPI Gateway (:8080)                                                │
 │  chat · search · verify · image · compose · moderate · session · health │
 │  ┌─────────────┐ ┌──────────────┐ ┌────────────┐ ┌───────────────────┐  │
-│  │ Orchestrator│ │ Moderation   │ │ Retriever  │ │ Chat store        │  │
-│  │ intent route│ │ input/output │ │ RAG + canon│ │ Postgres + media  │  │
+│  │ Planner     │ │ Moderation   │ │ Retriever  │ │ Chat store        │  │
+│  │ route+tool  │ │ input/output │ │ RAG + canon│ │ Postgres + media  │  │
 │  └─────────────┘ └──────────────┘ └────────────┘ └───────────────────┘  │
 └───────┬──────────────┬──────────────┬──────────────┬────────────────────┘
         │              │              │              │
@@ -142,11 +148,15 @@ framing. This project addresses that with a purpose-built pipeline:
 
 **Request flow (chat):**
 
-1. Input moderation → rewrite guard → load memory (summary + last 3 turns)
-2. Intent classification (normal / scripture / image)
-3. RAG retrieval (scripture intent only) → build system prompt → LLM
-4. Output moderation → verse verification → image compose/render (if image intent)
-5. Persist turn to Postgres → stream tokens to UI
+1. User message arrives via **HTTP POST** (JSON body — not SSE).
+2. Input moderation → rewrite guard → load memory
+3. **Planner** decides route (normal / scripture / image)
+4. **Execute:** RAG retrieval or image prompt compose
+5. **rag_miss** → honest template (no synthesizer) if no grounded verses
+6. **Synthesizer** LLM streams reply via **SSE** to the UI
+7. Render image, verify, persist
+
+Details: [docs/services/planner.md](docs/services/planner.md)
 
 Full diagrams and per-service detail: [docs/architecture/overview.md](docs/architecture/overview.md).
 
@@ -252,7 +262,8 @@ Details: [docs/services/qdrant.md](docs/services/qdrant.md),
 | -------- | -------- |
 | [docs/README.md](docs/README.md) | Documentation index |
 | [docs/architecture/overview.md](docs/architecture/overview.md) | System architecture, data flow, phase map |
-| [docs/services/backend.md](docs/services/backend.md) | FastAPI gateway — routers, services, clients |
+| [docs/services/backend.md](docs/services/backend.md) | FastAPI gateway — Planner pipeline |
+| [docs/services/planner.md](docs/services/planner.md) | Planner brain, routes, RAG miss policy |
 | [docs/services/ui.md](docs/services/ui.md) | Next.js chat UI — streaming, sidebar, API client |
 | [docs/services/mcp-server.md](docs/services/mcp-server.md) | FastMCP tool server |
 | [docs/services/vllm.md](docs/services/vllm.md) | vLLM + Qwen2.5-VL serving |
@@ -272,7 +283,8 @@ docker-compose.yml          base service definitions
 docker-compose.dev.yml      dev overrides (mocks, hot reload, no GPU)
 docker-compose.prod.yml     prod overrides (GPU profile, restart policies)
 .env.example                documented configuration
-Makefile                    thin wrappers around the orchestrator
+startup.sh                  single entrypoint (./startup.sh dev|prod)
+Makefile                    thin wrappers around startup.sh
 infrastructure/             one-command orchestration (script.sh + lib/)
 docs/                       architecture and per-service documentation
 services/

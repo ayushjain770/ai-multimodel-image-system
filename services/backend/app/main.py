@@ -27,7 +27,7 @@ from app.routers import (
 from app.services.chat_store import build_chat_store
 from app.services.memory import build_memory
 from app.services.moderation import build_moderator
-from app.services.orchestrator import build_orchestrator
+from app.services.planner import build_planner
 from app.services.retriever import Retriever
 from app.services.verifier import build_verifier
 
@@ -83,8 +83,8 @@ async def lifespan(app: FastAPI):
     else:
         app.state.moderator = None
         logger.info("Moderation disabled (MODERATION_ENABLED=false)")
-    app.state.orchestrator = (
-        build_orchestrator(app.state.llm_client)
+    app.state.planner = (
+        build_planner(app.state.llm_client)
         if settings.orchestrator_enabled
         else None
     )

@@ -39,6 +39,9 @@ _SUMMARY_SYSTEM_PROMPT = (
 # return a clean scene description (no chat decorations) without a GPU.
 IMAGE_COMPOSER_MARKER = "[[compose-image]]"
 
+# Marker the planner prepends so the mock LLM returns deterministic JSON.
+PLANNER_MARKER = "[[planner]]"
+
 _MODERATION_SYSTEM_PROMPT = (
     "You are a strict content-safety classifier for a Christian assistant. Decide "
     "whether the user message should be blocked. Block hateful, harassing, sexual, "
@@ -112,6 +115,11 @@ class MockLLMClient(LLMClient):
         citations: list[Citation] | None,
         system_prompt: str | None,
     ) -> str:
+        if system_prompt and PLANNER_MARKER in system_prompt:
+            from app.services.planner import classify_rules
+
+            p = classify_rules(message)
+            return json.dumps({"route": p.route, "reason": p.reason})
         if system_prompt and IMAGE_COMPOSER_MARKER in system_prompt:
             # Composer path: return a clean, deterministic scene description.
             return (

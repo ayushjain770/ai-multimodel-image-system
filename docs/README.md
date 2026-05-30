@@ -12,6 +12,7 @@ Architecture and per-service reference for the Christianity AI Assistant.
 | Service | Port | Doc |
 | ------- | ---- | --- |
 | FastAPI backend | 8080 | [backend.md](services/backend.md) |
+| **Planner (brain)** | — | [planner.md](services/planner.md) |
 | Next.js UI | 3000 | [ui.md](services/ui.md) |
 | FastMCP server | 8001 | [mcp-server.md](services/mcp-server.md) |
 | vLLM (Qwen2.5-VL) | 8000 | [vllm.md](services/vllm.md) |
@@ -22,7 +23,7 @@ Architecture and per-service reference for the Christianity AI Assistant.
 
 ## Infrastructure
 
-- [Orchestrator & Docker Compose](infrastructure.md) — `script.sh`, dev vs prod,
+- [Orchestrator & Docker Compose](infrastructure.md) — `./startup.sh`, dev vs prod modes,
   health checks, model download
 
 ## Quick links

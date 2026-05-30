@@ -1,23 +1,18 @@
-"""Chat endpoints: orchestrated, moderated, grounded, remembered, verified.
+"""Chat endpoints: Planner → Execute → Synthesizer pipeline with SSE streaming.
 
 Two endpoints share the same pipeline:
-  - POST /api/v1/chat        -> one JSON ChatResponse (used by tests/MCP).
+  - POST /api/v1/chat        -> one JSON ChatResponse.
   - POST /api/v1/chat/stream -> Server-Sent Events (meta -> token* -> final -> done).
 
 Pipeline:
-0. Input moderation (pre-LLM): block hateful/illegal/jailbreak with a refusal.
-1. Rewrite/alter guard (pre-LLM): refuse verse alteration; return the authentic verse.
-2. Load memory (when session_id is set): rolling summary + last N turns.
-3. Classify intent (orchestrator): normal | scripture | image.
-4. RAG retrieve only for scripture intent (and when enabled/populated).
-5. Build a tone/denomination-aware system prompt and ground the LLM.
-6. Output moderation: replace the reply if it contains unsafe content.
-7. Verify (post-LLM): check references against the canonical store.
-8. Image intent (or generate_image): compose an art prompt, safety-check, render.
-9. Persist the turn to memory (summarizing older turns past the threshold).
-
-Steps 0-5 live in prepare_turn(); steps 6-8 in postprocess(). Works with the mock
-LLM too, so the whole flow is demonstrable without a GPU.
+0. Input moderation (pre-LLM).
+1. Rewrite/alter guard (pre-LLM).
+2. Load memory (summary + last N turns).
+3. Planner: normal | scripture | image.
+4. Execute: RAG (scripture) or image compose (image / generate_image flag).
+5. rag_miss short-circuit (honest template, no synthesizer).
+6. Synthesizer LLM (stream or single reply).
+7. postprocess: render pre-composed image, output moderation, verify, persist.
 """
 
 import json
@@ -37,28 +32,30 @@ from app.schemas import (
     ModerationInfo,
     VerificationItem,
 )
-from app.services.image_prompt import check_safety, compose_image_prompt
-from app.services.prompt_builder import build_system_prompt
+from app.services.image_prompt import ImageParams, check_safety, compose_image_prompt
+from app.services.planner import Plan
+from app.services.prompt_builder import build_synthesizer_prompt
 
 router = APIRouter(prefix="/api/v1", tags=["chat"])
 
 
 @dataclass
 class PreparedTurn:
-    """Everything needed to call the LLM, computed by prepare_turn()."""
+    """Everything needed for the synthesizer LLM after planner + execution."""
 
     history: list[ChatMessage]
     system_prompt: str
     citations: list[Citation]
     intent: IntentInfo | None
-    want_image: bool
-    use_memory: bool
+    plan: Plan | None
+    rag_miss: bool
+    image_params: ImageParams | None
     backend: BackendInfo
 
 
 @dataclass
 class Finalized:
-    """Post-LLM result after output moderation, verification, and image."""
+    """Post-synthesizer result after moderation, verification, and image render."""
 
     reply: str
     moderated: bool
@@ -70,13 +67,23 @@ class Finalized:
 
 
 def _trim_window(history: list[ChatMessage]) -> list[ChatMessage]:
-    """Keep only the last context_recent_turns turns (one turn = 2 messages)."""
     keep = max(0, settings.context_recent_turns) * 2
     return history[-keep:] if keep else []
 
 
 def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+def _plan_to_intent(plan: Plan, rag_miss: bool = False) -> IntentInfo:
+    return IntentInfo(
+        kind=plan.route,
+        needs_rag=plan.needs_rag,
+        tool=plan.tool,
+        source=plan.source,
+        reason=plan.reason,
+        rag_miss=rag_miss if plan.route == "scripture" else None,
+    )
 
 
 def _correction_note(items: list[VerificationItem]) -> str | None:
@@ -94,6 +101,17 @@ def _correction_note(items: list[VerificationItem]) -> str | None:
     return "\n".join(lines)
 
 
+def _rag_miss_response(
+    payload: ChatRequest, plan: Plan, backend: BackendInfo
+) -> ChatResponse:
+    return ChatResponse(
+        reply=settings.rag_miss_reply,
+        intent=_plan_to_intent(plan, rag_miss=True),
+        session_id=payload.session_id,
+        backend=backend,
+    )
+
+
 async def persist_turn(
     request: Request,
     payload: ChatRequest,
@@ -101,7 +119,6 @@ async def persist_turn(
     intent_kind: str | None = None,
     image_id: str | None = None,
 ) -> None:
-    """Persist a turn to the durable store (with intent/image) or memory fallback."""
     if payload.session_id is None:
         return
     app = request.app
@@ -124,19 +141,17 @@ async def persist_turn(
 async def prepare_turn(
     request: Request, payload: ChatRequest
 ) -> tuple[ChatResponse | None, PreparedTurn | None]:
-    """Run steps 0-5. Return (early_response, None) for short-circuits
-    (input moderation / rewrite guard), else (None, PreparedTurn)."""
+    """Planner + execution. Returns early ChatResponse or PreparedTurn for synthesizer."""
     app = request.app
     verifier = getattr(app.state, "verifier", None)
     memory = getattr(app.state, "memory", None)
     moderator = getattr(app.state, "moderator", None)
-    orchestrator = getattr(app.state, "orchestrator", None)
+    planner = getattr(app.state, "planner", None)
     use_memory = memory is not None and payload.session_id is not None
     backend = BackendInfo(
         llm=settings.llm_backend.value, image=settings.image_backend.value
     )
 
-    # 0. Input moderation: block hateful/illegal/jailbreak before the LLM.
     if moderator is not None:
         verdict = await moderator.moderate_input(payload.message)
         if not verdict.allowed:
@@ -158,7 +173,6 @@ async def prepare_turn(
                 None,
             )
 
-    # 1. Pre-LLM rewrite/alter guard.
     if verifier is not None:
         target = verifier.detect_rewrite_intent(payload.message)
         if target is not None:
@@ -177,8 +191,11 @@ async def prepare_turn(
                         reply=reply,
                         verification=[
                             VerificationItem(
-                                ref=ref, status="valid", book=target.book,
-                                chapter=target.chapter, verse=target.verse,
+                                ref=ref,
+                                status="valid",
+                                book=target.book,
+                                chapter=target.chapter,
+                                verse=target.verse,
                                 canonical_text=authentic,
                                 message="Returned the authentic verse; alteration refused.",
                             )
@@ -190,7 +207,6 @@ async def prepare_turn(
                     None,
                 )
 
-    # 2. Load conversation memory, trimmed to the last N turns for the prompt.
     summary = ""
     if use_memory:
         summary, history = await memory.load(payload.session_id)
@@ -198,42 +214,68 @@ async def prepare_turn(
         history = payload.history
     history = _trim_window(history)
 
-    # 3. Classify intent (decides RAG and image paths below).
-    intent_info: IntentInfo | None = None
-    if orchestrator is not None:
-        intent = await orchestrator.classify(payload.message)
-        intent_info = IntentInfo(
-            kind=intent.kind,
-            needs_rag=intent.needs_rag,
-            tool=intent.tool,
-            source=intent.source,
-        )
-        want_image = intent.kind == "image" or payload.generate_image
-        want_rag = intent.needs_rag
+    # Planner
+    if planner is not None:
+        plan = await planner.plan(payload.message)
     else:
-        want_image = payload.generate_image
-        want_rag = True
+        from app.services.planner import classify_rules
 
-    # 4. RAG retrieve only when the intent needs grounding.
+        plan = classify_rules(payload.message)
+
+    want_image = plan.route == "image" or payload.generate_image
+    want_rag = plan.needs_rag
+
+    # Execute: RAG for scripture route
     citations: list[Citation] = []
+    rag_miss = False
     if (
         want_rag
         and settings.rag_enabled
+        and app.state.retriever is not None
         and await app.state.vector_client.collection_ready()
     ):
         citations = await app.state.retriever.retrieve(
             payload.message, payload.denomination
         )
+        rag_miss = len(citations) == 0
 
-    # 5. Build a tone/denomination-aware system prompt.
-    system_prompt = build_system_prompt(payload.denomination, summary)
+    if plan.route == "scripture" and rag_miss:
+        reply = settings.rag_miss_reply
+        await persist_turn(request, payload, reply, plan.route)
+        return (_rag_miss_response(payload, plan, backend), None)
+
+    # Execute: image compose (execution-phase LLM call)
+    image_params: ImageParams | None = None
+    if want_image:
+        safety = check_safety(payload.message)
+        if not safety.ok:
+            reply = safety.reason or settings.moderation_refusal
+            await persist_turn(request, payload, reply, plan.route)
+            return (
+                ChatResponse(
+                    reply=reply,
+                    refused=True,
+                    intent=_plan_to_intent(plan),
+                    session_id=payload.session_id,
+                    backend=backend,
+                ),
+                None,
+            )
+        image_params = await compose_image_prompt(
+            app.state.llm_client, payload.message, payload.denomination.value
+        )
+
+    intent_info = _plan_to_intent(plan, rag_miss=False)
+    system_prompt = build_synthesizer_prompt(plan, payload.denomination, summary)
+
     return None, PreparedTurn(
         history=history,
         system_prompt=system_prompt,
         citations=citations,
         intent=intent_info,
-        want_image=want_image,
-        use_memory=use_memory,
+        plan=plan,
+        rag_miss=False,
+        image_params=image_params,
         backend=backend,
     )
 
@@ -241,7 +283,7 @@ async def prepare_turn(
 async def postprocess(
     request: Request, payload: ChatRequest, prepared: PreparedTurn, reply: str
 ) -> Finalized:
-    """Run steps 6-8 on a generated reply: output moderation, verify, image."""
+    """Output moderation, verify (scripture route), render pre-composed image."""
     app = request.app
     verifier = getattr(app.state, "verifier", None)
     moderator = getattr(app.state, "moderator", None)
@@ -258,7 +300,8 @@ async def postprocess(
             )
 
     verification: list[VerificationItem] = []
-    if verifier is not None and not moderated:
+    scripture_route = prepared.plan is not None and prepared.plan.route == "scripture"
+    if verifier is not None and not moderated and scripture_route:
         results = await verifier.verify_text(reply)
         verification = [VerificationItem(**vars(r)) for r in results]
         note = _correction_note(verification)
@@ -268,15 +311,15 @@ async def postprocess(
     image_b64: str | None = None
     image_url: str | None = None
     image_id: str | None = None
-    if not moderated and prepared.want_image and check_safety(payload.message).ok:
-        params = await compose_image_prompt(
-            app.state.llm_client, payload.message, payload.denomination.value
-        )
-        rendered = await app.state.image_client.generate(params)
+    if not moderated and prepared.image_params is not None:
+        rendered = await app.state.image_client.generate(prepared.image_params)
         chat_store = getattr(app.state, "chat_store", None)
         if chat_store is not None and payload.session_id is not None:
             ref = await chat_store.save_image(
-                payload.session_id, rendered, params.positive, params.negative
+                payload.session_id,
+                rendered,
+                prepared.image_params.positive,
+                prepared.image_params.negative,
             )
             image_url = ref.url
             image_id = ref.id
@@ -335,13 +378,12 @@ async def chat_stream(request: Request, payload: ChatRequest) -> StreamingRespon
     early, prepared = await prepare_turn(request, payload)
 
     async def gen():
-        # Short-circuit (input moderation / rewrite guard): no LLM call.
         if early is not None:
             yield _sse(
                 "meta",
                 {
-                    "intent": None,
-                    "citations": [],
+                    "intent": early.intent.model_dump() if early.intent else None,
+                    "citations": [c.model_dump() for c in early.citations],
                     "session_id": early.session_id,
                     "backend": early.backend.model_dump(),
                 },

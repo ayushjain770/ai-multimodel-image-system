@@ -38,6 +38,8 @@ class Retriever:
             top_k=top_k or settings.rag_top_k,
             canon=_canon_for(denomination),
         )
+        min_score = settings.rag_min_score
+        filtered = [h for h in hits if float(h.get("score", 0)) >= min_score]
         return [
             Citation(
                 ref=h["ref"],
@@ -48,5 +50,5 @@ class Retriever:
                 text=h["text"],
                 score=round(float(h["score"]), 4),
             )
-            for h in hits
+            for h in filtered
         ]

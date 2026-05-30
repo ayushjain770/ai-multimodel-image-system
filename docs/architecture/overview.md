@@ -25,7 +25,7 @@
                          │   compose · moderate · session    │
                          │                                   │
                          │  Services                         │
-                         │   orchestrator · moderation       │
+                         │   planner · moderation            │
                          │   retriever · verifier            │
                          │   prompt_builder · image_prompt   │
                          │   memory · chat_store             │
@@ -56,8 +56,9 @@
 2. **Dev/prod parity** — The same code path runs in dev (mock LLM/image) and prod
    (real models). Mocks are swappable via `LLM_BACKEND` and `IMAGE_BACKEND` env vars.
 
-3. **Intent-gated work** — The orchestrator classifies each message (normal /
-   scripture / image) so RAG, verification, and image generation only run when needed.
+3. **Planner-gated work** — The planner classifies each message (normal / scripture /
+   image) so RAG, verification, and image generation only run when needed. RAG miss
+   short-circuits with an honest template (no hallucination).
 
 4. **Layered safety** — Rule-based moderation is always on; an optional LLM judge
    adds a second opinion in prod. Image prompts go through the same safety patterns.
@@ -72,38 +73,31 @@ sequenceDiagram
     participant UI as UI :3000
     participant BE as Backend :8080
     participant MOD as Moderation
-    participant ORC as Orchestrator
+    participant Plan as Planner
     participant RAG as Retriever / Qdrant
-    participant LLM as vLLM / Mock
+    participant Synth as Synthesizer LLM
     participant VER as Verifier
     participant IMG as ComfyUI / Mock
     participant PG as Postgres
 
-    UI->>BE: POST /chat/stream {message, session_id}
+    UI->>BE: POST /chat/stream JSON body
     BE->>MOD: input moderation
-    alt blocked
-        MOD-->>BE: refusal
-        BE-->>UI: SSE token + final (refused)
+    BE->>PG: load memory
+    BE->>Plan: plan(message)
+    alt scripture route
+        BE->>RAG: retrieve + score filter
+        alt rag_miss
+            BE-->>UI: SSE honest template
+        end
+    else image route
+        BE->>BE: compose image prompt
     end
-    BE->>PG: load memory (summary + last 3 turns)
-    BE->>ORC: classify intent
-    alt scripture intent
-        BE->>RAG: embed query + search Qdrant
-        RAG-->>BE: top-K verses + citations
-    end
-    BE->>LLM: system prompt + history + message
+    BE->>Synth: stream synthesizer
     loop streaming
-        LLM-->>BE: token delta
-        BE-->>UI: SSE token
+        Synth-->>UI: SSE token
     end
-    BE->>MOD: output moderation
-    BE->>VER: verify scripture references
-    alt image intent
-        BE->>LLM: compose image prompt
-        BE->>IMG: render SDXL
-        IMG-->>BE: PNG
-        BE->>PG: save image file + metadata
-    end
+    BE->>IMG: render pre-composed image
+    BE->>VER: verify (scripture)
     BE->>PG: persist turn
     BE-->>UI: SSE final + done
 ```
@@ -130,6 +124,7 @@ sequenceDiagram
 | 5 | Conversation memory, denomination framing | `memory.py`, `prompt_builder.py` |
 | 6 | Safety & moderation layer | `moderation.py` |
 | 7 | Intent orchestrator + prompt composer | `orchestrator.py`, `compose.py` |
+| 11 | Planner + Synthesizer brain | `planner.py`, RAG miss, `startup.sh` |
 | 8 | SSE streaming + last-3-turns window | `chat.py` (stream), `context_recent_turns` |
 | 9 | Postgres chat store + image persistence | `chat_store.py`, `db/models.py` |
 | 10 | UI history sidebar + multi-session | `ui/app/page.tsx`, `ui/lib/api.ts` |

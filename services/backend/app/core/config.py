@@ -84,10 +84,28 @@ class Settings(BaseSettings):
     # difflib ratio below which a quoted verse is treated as a misquote.
     verify_fuzzy_threshold: float = 0.6
 
-    # Orchestrator (intent routing)
+    # Orchestrator / planner (intent routing)
     orchestrator_enabled: bool = True
-    # Use the LLM to classify only when the rules are ambiguous (prod opt-in).
+    # Deprecated: vLLM planner runs automatically when LLM_BACKEND=vllm.
     orchestrator_llm_intent: bool = False
+    planner_instruction: str = (
+        "You are the routing planner for a Christianity-focused assistant. "
+        "Classify the user message into exactly one route:\n"
+        "- normal: general chat, greetings, or topics NOT related to Christianity "
+        "(weather, sports, coding, etc.)\n"
+        "- scripture: questions about the Bible, Jesus, faith, prayer, church, "
+        "Christian doctrine, or Scripture\n"
+        "- image: user wants to create, draw, paint, or generate a picture/photo\n"
+        "Reply with ONLY valid JSON: {\"route\":\"normal|scripture|image\","
+        "\"reason\":\"brief explanation\"}"
+    )
+    # Minimum Qdrant similarity score to accept a RAG hit (0-1).
+    rag_min_score: float = 0.35
+    rag_miss_reply: str = (
+        "I couldn't find enough grounded Scripture in my corpus to answer that "
+        "confidently. I'd rather not guess — could you rephrase or ask about a "
+        "specific passage?"
+    )
     # System prompt for the image prompt-composer (turns a request into a scene).
     image_composer_instruction: str = (
         "You are an art director for reverent Christian fine art. Rewrite the "

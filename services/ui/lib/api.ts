@@ -12,6 +12,8 @@ export interface IntentInfo {
   needs_rag: boolean;
   tool: string | null;
   source: string;
+  reason?: string | null;
+  rag_miss?: boolean | null;
 }
 
 export interface Citation {
