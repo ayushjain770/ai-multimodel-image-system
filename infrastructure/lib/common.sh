@@ -106,6 +106,9 @@ load_env() {
 # compose <args...> : invoke docker compose with the right files for the mode.
 # Requires DEPLOY_MODE to be set (dev|prod).
 # ---------------------------------------------------------------------------
+# shellcheck source=ec2.sh
+source "${LIB_DIR}/ec2.sh"
+
 compose() {
     local mode="${DEPLOY_MODE:-dev}"
     local -a files=(-f "${REPO_ROOT}/docker-compose.yml")

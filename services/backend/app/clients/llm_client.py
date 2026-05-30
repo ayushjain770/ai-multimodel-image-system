@@ -75,6 +75,7 @@ class LLMClient(ABC):
         history: list[ChatMessage],
         citations: list[Citation] | None = None,
         system_prompt: str | None = None,
+        temperature: float | None = None,
     ) -> str: ...
 
     @abstractmethod
@@ -150,6 +151,7 @@ class MockLLMClient(LLMClient):
         history: list[ChatMessage],
         citations: list[Citation] | None = None,
         system_prompt: str | None = None,
+        temperature: float | None = None,
     ) -> str:
         return self._build_reply(message, history, citations, system_prompt)
 
@@ -198,6 +200,7 @@ class VLLMClient(LLMClient):
         history: list[ChatMessage],
         citations: list[Citation] | None = None,
         system_prompt: str | None = None,
+        temperature: float | None = None,
     ) -> str:
         messages = self._build_messages(message, history, citations, system_prompt)
         resp = await self._client.post(
@@ -205,7 +208,7 @@ class VLLMClient(LLMClient):
             json={
                 "model": self._model,
                 "messages": messages,
-                "temperature": settings.llm_temperature,
+                "temperature": temperature if temperature is not None else settings.llm_temperature,
             },
         )
         resp.raise_for_status()

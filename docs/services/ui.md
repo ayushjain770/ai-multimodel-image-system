@@ -62,10 +62,12 @@ to inline `image_base64` when the durable store is disabled.
 | Variable | Default | Purpose |
 | -------- | ------- | ------- |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8080` | Backend URL (browser-reachable) |
+| `PUBLIC_HOST` | _(auto on EC2)_ | Host printed in startup URLs (display only) |
 | `UI_PORT` | `3000` | Host port mapping |
 
-In prod/EC2, set `NEXT_PUBLIC_API_URL` to the public backend address so the browser
-can reach it.
+In prod/EC2, `./startup.sh prod` auto-detects the instance public IP via AWS
+metadata and sets `NEXT_PUBLIC_API_URL` before the UI image is built. Override
+`PUBLIC_HOST` and `NEXT_PUBLIC_API_URL` in `.env` when using a domain or Elastic IP.
 
 ## Dev mode
 

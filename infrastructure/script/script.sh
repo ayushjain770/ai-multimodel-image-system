@@ -82,15 +82,25 @@ do_ingest() {
 do_smoke() {
     log_step "Smoke test"
     local base="http://localhost:${BACKEND_PORT:-8080}"
-    local payload reply cites
+    local payload reply cites resp
     payload='{"message":"What does the Bible say about love?","generate_image":false}'
-    local resp
     resp="$(curl -fsS --max-time 30 -X POST "${base}/api/v1/chat" \
         -H 'Content-Type: application/json' -d "${payload}")" \
         || die "smoke chat request failed"
     reply="$(printf '%s' "${resp}" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("reply","")[:120])')"
     cites="$(printf '%s' "${resp}" | python3 -c 'import json,sys;print(len(json.load(sys.stdin).get("citations") or []))')"
+    if (( cites < 1 )); then
+        die "smoke chat returned 0 citations; RAG may be broken or Qdrant empty"
+    fi
     log_ok "chat replied (citations=${cites}): ${reply}"
+
+    if [[ "${DEPLOY_MODE}" == "prod" ]]; then
+        local compose_payload='{"message":"Draw a peaceful nativity scene"}'
+        resp="$(curl -fsS --max-time 60 -X POST "${base}/api/v1/compose_image_prompt" \
+            -H 'Content-Type: application/json' -d "${compose_payload}")" \
+            || die "smoke compose_image_prompt request failed"
+        log_ok "compose_image_prompt ok"
+    fi
 }
 
 print_urls() {
@@ -113,6 +123,7 @@ print_urls() {
 
 cmd_up() {
     preflight
+    [[ "${DEPLOY_MODE}" == "prod" ]] && resolve_public_host
     [[ "${DEPLOY_MODE}" == "prod" ]] && download_models
     do_build
     do_up

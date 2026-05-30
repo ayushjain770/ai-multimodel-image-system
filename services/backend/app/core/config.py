@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     llm_timeout: float = 120.0
     # Sampling temperature for chat completions (lower = steadier tone).
     llm_temperature: float = 0.4
+    # Temperature for the image prompt composer LLM (scene rewrite before ComfyUI).
+    image_composer_temperature: float = 0.3
     # Overridable persona/tone the system prompt is built around.
     llm_persona: str = (
         "You are a Christianity-focused assistant. You are pastoral, humble, and "

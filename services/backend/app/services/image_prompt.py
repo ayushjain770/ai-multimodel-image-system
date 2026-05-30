@@ -99,7 +99,15 @@ async def compose_image_prompt(
     if denomination and denomination != "neutral":
         hint = f"{hint} (in the {denomination} tradition)"
     system = f"{IMAGE_COMPOSER_MARKER}\n{settings.image_composer_instruction}"
-    scene = (await llm_client.chat(hint, [], None, system_prompt=system)).strip()
+    scene = (
+        await llm_client.chat(
+            hint,
+            [],
+            None,
+            system_prompt=system,
+            temperature=settings.image_composer_temperature,
+        )
+    ).strip()
     if not scene:
         scene = hint
     logger.info("[image-composer] request=%r -> scene=%r", request[:60], scene[:80])

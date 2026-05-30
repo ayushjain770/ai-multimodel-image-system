@@ -228,16 +228,15 @@ async def prepare_turn(
     # Execute: RAG for scripture route
     citations: list[Citation] = []
     rag_miss = False
-    if (
-        want_rag
-        and settings.rag_enabled
-        and app.state.retriever is not None
-        and await app.state.vector_client.collection_ready()
-    ):
-        citations = await app.state.retriever.retrieve(
-            payload.message, payload.denomination
-        )
-        rag_miss = len(citations) == 0
+    if want_rag and settings.rag_enabled and app.state.retriever is not None:
+        collection_ready = await app.state.vector_client.collection_ready()
+        if collection_ready:
+            citations = await app.state.retriever.retrieve(
+                payload.message, payload.denomination
+            )
+            rag_miss = len(citations) == 0
+        else:
+            rag_miss = True
 
     if plan.route == "scripture" and rag_miss:
         reply = settings.rag_miss_reply
@@ -266,7 +265,16 @@ async def prepare_turn(
         )
 
     intent_info = _plan_to_intent(plan, rag_miss=False)
-    system_prompt = build_synthesizer_prompt(plan, payload.denomination, summary)
+    synth_plan = plan
+    if want_image and plan.route != "image":
+        synth_plan = Plan(
+            route="image",
+            tool="generate_image",
+            reason=plan.reason,
+            source=plan.source,
+            needs_rag=False,
+        )
+    system_prompt = build_synthesizer_prompt(synth_plan, payload.denomination, summary)
 
     return None, PreparedTurn(
         history=history,

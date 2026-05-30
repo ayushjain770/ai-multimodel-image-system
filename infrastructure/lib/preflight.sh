@@ -78,6 +78,25 @@ _check_gpu() {
     log_ok "nvidia gpu detected"
 }
 
+_check_public_urls() {
+    if [[ "${DEPLOY_MODE:-dev}" != "prod" ]]; then
+        return 0
+    fi
+    local api_url="${NEXT_PUBLIC_API_URL:-http://localhost:8080}"
+    if [[ "${api_url}" == *"localhost"* ]]; then
+        local detected
+        detected="$(detect_ec2_public_ip || true)"
+        if [[ -n "${detected}" ]]; then
+            log_ok "EC2 public IP ${detected} will be applied before UI build"
+        else
+            log_warn "NEXT_PUBLIC_API_URL uses localhost and EC2 metadata unavailable."
+            log_warn "Set PUBLIC_HOST and NEXT_PUBLIC_API_URL in .env for browser access."
+        fi
+    elif [[ -n "${PUBLIC_HOST:-}" ]]; then
+        log_ok "public URLs configured (PUBLIC_HOST=${PUBLIC_HOST})"
+    fi
+}
+
 preflight() {
     log_step "Preflight checks (mode=${DEPLOY_MODE:-dev})"
     _check_docker
@@ -86,5 +105,6 @@ preflight() {
     _check_disk
     _check_ports
     _check_gpu
+    _check_public_urls
     log_ok "preflight passed"
 }
