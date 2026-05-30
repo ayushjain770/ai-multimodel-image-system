@@ -94,15 +94,20 @@ do_smoke() {
 }
 
 print_urls() {
+    local host="${PUBLIC_HOST:-localhost}"
     log_step "Stack is up (mode=${DEPLOY_MODE})"
-    echo "  UI        : http://localhost:${UI_PORT:-3000}"
-    echo "  Backend   : http://localhost:${BACKEND_PORT:-8080}"
-    echo "  Readyz    : http://localhost:${BACKEND_PORT:-8080}/health/readyz"
-    echo "  MCP       : http://localhost:${MCP_PORT:-8001}/mcp"
-    echo "  Qdrant    : http://localhost:${QDRANT_PORT:-6333}/dashboard"
+    echo "  UI        : http://${host}:${UI_PORT:-3000}"
+    echo "  Backend   : http://${host}:${BACKEND_PORT:-8080}"
+    echo "  Readyz    : http://${host}:${BACKEND_PORT:-8080}/health/readyz"
+    echo "  MCP       : http://${host}:${MCP_PORT:-8001}/mcp"
+    echo "  Qdrant    : http://${host}:${QDRANT_PORT:-6333}/dashboard"
     if [[ "${DEPLOY_MODE}" == "prod" ]]; then
-        echo "  vLLM      : http://localhost:${VLLM_PORT:-8000}/v1"
-        echo "  ComfyUI   : http://localhost:${COMFYUI_PORT:-8188}"
+        echo "  vLLM      : http://${host}:${VLLM_PORT:-8000}/v1"
+        echo "  ComfyUI   : http://${host}:${COMFYUI_PORT:-8188}"
+        if [[ "${host}" == "localhost" ]]; then
+            echo ""
+            echo "  EC2: set PUBLIC_HOST and NEXT_PUBLIC_API_URL in .env, rebuild ui, open SG ports 3000+8080."
+        fi
     fi
 }
 

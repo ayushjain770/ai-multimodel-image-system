@@ -302,8 +302,17 @@ tests/langchain_tools/      MCP + intent routing test harness
 ## EC2 / production notes
 
 - Requires NVIDIA driver + NVIDIA Container Toolkit on the host.
-- Open security-group ports 3000 and 8080 (minimum).
-- Set `NEXT_PUBLIC_API_URL=http://<host>:8080` in `.env`.
+- Open security-group inbound ports **3000** (UI) and **8080** (backend API). Optional: 6333 (Qdrant dashboard), 8001 (MCP).
+- In `.env`, set your EC2 public IP or domain:
+  - `PUBLIC_HOST=<ec2-public-ip>` — startup prints browser URLs with this host
+  - `NEXT_PUBLIC_API_URL=http://<ec2-public-ip>:8080` — where the UI calls the API from the browser
+- **Rebuild the UI** after changing `NEXT_PUBLIC_API_URL` (it is baked in at build time):
+  ```bash
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml build ui
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d ui
+  ```
+- Open the app at `http://<ec2-public-ip>:3000` (not `localhost` from your laptop).
+- MCP has no page at `/` — use `http://<host>:8001/mcp` for the MCP endpoint. A `GET /` 404 is normal.
 - Set `LLM_BACKEND=vllm` and `IMAGE_BACKEND=comfy` in `.env`.
 - Set `HF_TOKEN` if the Qwen model repo is gated.
 - Weights live in Docker volumes (`hf_cache`, `models/`) — not committed to git.
